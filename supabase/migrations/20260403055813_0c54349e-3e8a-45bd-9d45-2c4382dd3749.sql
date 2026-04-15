@@ -1,0 +1,1 @@
+DELETE FROM public.github_projects WHERE LOWER(SPLIT_PART(full_name, '/', 1)) IN ('openai','huggingface','meta-llama','mistralai','google-deepmind','google-research','facebookresearch','nvidia','databricks','anthropics','cohere-ai','allenai','eleutherai','bigscience-workshop','stability-ai','compvis');
