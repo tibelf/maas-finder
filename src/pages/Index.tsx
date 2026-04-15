@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback } from "react";
-import { useGithubProjects, useProjectStats, type ProjectFilters } from "@/hooks/useGithubProjects";
+import { useState } from "react";
+import { useProjectStats, type ProjectFilters } from "@/hooks/useGithubProjects";
 import { useProjectsWithClaims, useClaimCounts, type ProjectWithClaim } from "@/hooks/useProjectClaims";
 import { ProjectTable } from "@/components/ProjectTable";
 import { ProjectFiltersBar } from "@/components/ProjectFiltersBar";
@@ -7,7 +7,7 @@ import { AuthDialog } from "@/components/AuthDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { RefreshCw, Database, ChartBar as BarChart3, Loader as Loader2, LogOut } from "lucide-react";
+import { RefreshCw, Database, ChartBar as BarChart3, LogOut } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -27,32 +27,21 @@ const Index = () => {
   });
   const [syncing, setSyncing] = useState(false);
 
-  const { data, isLoading, error, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    useGithubProjects(filters);
   const { data: stats } = useProjectStats();
   const { data: claimCounts } = useClaimCounts();
 
+  const { data: allAvailableProjects, isLoading: availableLoading, error: availableError, refetch: refetchAvailable } = useProjectsWithClaims("available");
+
+  const availableProjects = (allAvailableProjects ?? []).filter((p) => {
+    const search = filters.search.toLowerCase();
+    if (search && !p.full_name.toLowerCase().includes(search) && !(p.description ?? "").toLowerCase().includes(search)) return false;
+    if (filters.categories.length > 0 && !filters.categories.includes(p.category ?? "")) return false;
+    if (filters.languages.length > 0 && !filters.languages.includes(p.language ?? "")) return false;
+    return true;
+  });
   const { data: claimedProjects, isLoading: claimedLoading } = useProjectsWithClaims("claimed");
   const { data: prProjects, isLoading: prLoading } = useProjectsWithClaims("pr_submitted");
   const { data: mergedProjects, isLoading: mergedLoading } = useProjectsWithClaims("merged");
-
-  const allAvailableProjects = data?.pages.flat() ?? [];
-  const availableProjects: ProjectWithClaim[] = allAvailableProjects.map((p) => ({ ...p, claim: null }));
-
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  const sentinelRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      if (isFetchingNextPage) return;
-      if (observerRef.current) observerRef.current.disconnect();
-      observerRef.current = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting && hasNextPage) {
-          fetchNextPage();
-        }
-      });
-      if (node) observerRef.current.observe(node);
-    },
-    [isFetchingNextPage, hasNextPage, fetchNextPage]
-  );
 
   const handleSync = async () => {
     setSyncing(true);
@@ -62,7 +51,7 @@ const Index = () => {
       });
       if (error) throw error;
       toast.success(`同步完成！发现 ${data.total_found} 个项目，入库 ${data.inserted} 个`);
-      refetch();
+      refetchAvailable();
     } catch (e: any) {
       toast.error(`同步失败: ${e.message}`);
     } finally {
@@ -173,18 +162,18 @@ const Index = () => {
               categories={stats?.categories || []}
             />
 
-            {isLoading ? (
+            {availableLoading ? (
               <div className="space-y-2">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="h-12 bg-muted rounded animate-pulse" />
                 ))}
               </div>
-            ) : error ? (
+            ) : availableError ? (
               <div className="text-center py-12">
-                <p className="text-destructive">加载失败: {(error as Error).message}</p>
-                <Button variant="outline" onClick={() => refetch()} className="mt-4">重试</Button>
+                <p className="text-destructive">加载失败: {(availableError as Error).message}</p>
+                <Button variant="outline" onClick={() => refetchAvailable()} className="mt-4">重试</Button>
               </div>
-            ) : !availableProjects.length ? (
+            ) : !availableProjects?.length ? (
               <div className="text-center py-16 space-y-4">
                 <Database className="h-12 w-12 mx-auto text-muted-foreground/50" />
                 <div>
@@ -196,12 +185,6 @@ const Index = () => {
               <>
                 <p className="text-sm text-muted-foreground">已加载 {availableProjects.length} 个项目</p>
                 <ProjectTable projects={availableProjects} tabStatus="available" onRequestLogin={() => setAuthDialogOpen(true)} />
-                <div ref={sentinelRef} className="flex justify-center py-4">
-                  {isFetchingNextPage && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
-                  {!hasNextPage && availableProjects.length > 0 && (
-                    <p className="text-sm text-muted-foreground">已加载全部项目</p>
-                  )}
-                </div>
               </>
             )}
           </TabsContent>
