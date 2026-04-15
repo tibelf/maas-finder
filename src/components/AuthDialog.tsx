@@ -30,6 +30,10 @@ export function AuthDialog({ open, onClose }: Props) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    if (mode === "signup" && !email.toLowerCase().endsWith("@qiniu.com")) {
+      setError("仅限 @qiniu.com 邮箱注册");
+      return;
+    }
     setLoading(true);
     try {
       if (mode === "login") {
@@ -78,7 +82,7 @@ export function AuthDialog({ open, onClose }: Props) {
               <Input
                 id="auth-email"
                 type="email"
-                placeholder="your@email.com"
+                placeholder={mode === "signup" ? "your@qiniu.com" : "your@email.com"}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
