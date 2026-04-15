@@ -116,6 +116,8 @@ export function useClaimProject() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects-with-claims"] });
       qc.invalidateQueries({ queryKey: ["project-claims"] });
+      qc.invalidateQueries({ queryKey: ["claim-counts"] });
+      qc.invalidateQueries({ queryKey: ["github-projects"] });
     },
   });
 }
@@ -133,6 +135,8 @@ export function useAbandonClaim() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects-with-claims"] });
       qc.invalidateQueries({ queryKey: ["project-claims"] });
+      qc.invalidateQueries({ queryKey: ["claim-counts"] });
+      qc.invalidateQueries({ queryKey: ["github-projects"] });
     },
   });
 }
@@ -158,6 +162,7 @@ export function useSubmitPr() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects-with-claims"] });
       qc.invalidateQueries({ queryKey: ["project-claims"] });
+      qc.invalidateQueries({ queryKey: ["claim-counts"] });
     },
   });
 }
