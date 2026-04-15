@@ -7,11 +7,12 @@ import { AuthDialog } from "@/components/AuthDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { RefreshCw, Database, ChartBar as BarChart3, LogOut } from "lucide-react";
+import { RefreshCw, Database, ChartBar as BarChart3, LogOut, CirclePlus as PlusCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import type { TabStatus } from "@/components/ProjectCard";
+import { AddProjectDialog } from "@/components/AddProjectDialog";
 
 const Index = () => {
   const { user, loading: authLoading, signOut } = useAuthContext();
@@ -26,6 +27,7 @@ const Index = () => {
     sortOrder: "desc",
   });
   const [syncing, setSyncing] = useState(false);
+  const [addProjectOpen, setAddProjectOpen] = useState(false);
 
   const { data: stats } = useProjectStats();
   const { data: claimCounts } = useClaimCounts();
@@ -62,6 +64,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       <AuthDialog open={authDialogOpen} onClose={() => setAuthDialogOpen(false)} />
+      <AddProjectDialog open={addProjectOpen} onClose={() => setAddProjectOpen(false)} />
       <header className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -88,6 +91,12 @@ const Index = () => {
                     登录 / 注册
                   </Button>
                 )
+              )}
+              {user && (
+                <Button variant="outline" size="sm" className="gap-2" onClick={() => setAddProjectOpen(true)}>
+                  <PlusCircle className="h-4 w-4" />
+                  <span className="hidden sm:inline">添加项目</span>
+                </Button>
               )}
               <Button onClick={handleSync} disabled={syncing} size="sm" className="gap-2">
                 <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
