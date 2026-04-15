@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useProjectStats, type ProjectFilters } from "@/hooks/useGithubProjects";
 import { useProjectsWithClaims, useClaimCounts, type ProjectWithClaim } from "@/hooks/useProjectClaims";
 import { ProjectTable } from "@/components/ProjectTable";
@@ -17,6 +18,7 @@ import { AddProjectDialog } from "@/components/AddProjectDialog";
 const Index = () => {
   const { user, loading: authLoading, signOut } = useAuthContext();
   const isAdmin = user?.email === "zhulang@qiniu.com";
+  const qc = useQueryClient();
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
 
   const [activeTab, setActiveTab] = useState<TabStatus>("available");
@@ -55,7 +57,9 @@ const Index = () => {
       });
       if (error) throw error;
       toast.success(`检查完成！共检查 ${data.checked} 个 PR，${data.merged} 个已合并`);
-      refetchAvailable();
+      qc.invalidateQueries({ queryKey: ["projects-with-claims"] });
+      qc.invalidateQueries({ queryKey: ["project-claims"] });
+      qc.invalidateQueries({ queryKey: ["claim-counts"] });
     } catch (e: any) {
       toast.error(`检查失败: ${e.message}`);
     } finally {
