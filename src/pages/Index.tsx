@@ -7,7 +7,7 @@ import { AuthDialog } from "@/components/AuthDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { RefreshCw, Database, ChartBar as BarChart3, LogOut, CirclePlus as PlusCircle } from "lucide-react";
+import { RefreshCw, Database, ChartBar as BarChart3, LogOut, CirclePlus as PlusCircle, GitPullRequest } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -28,6 +28,7 @@ const Index = () => {
     sortOrder: "desc",
   });
   const [syncing, setSyncing] = useState(false);
+  const [checkingPrs, setCheckingPrs] = useState(false);
   const [addProjectOpen, setAddProjectOpen] = useState(false);
 
   const { data: stats } = useProjectStats();
@@ -45,6 +46,22 @@ const Index = () => {
   const { data: claimedProjects, isLoading: claimedLoading } = useProjectsWithClaims("claimed");
   const { data: prProjects, isLoading: prLoading } = useProjectsWithClaims("pr_submitted");
   const { data: mergedProjects, isLoading: mergedLoading } = useProjectsWithClaims("merged");
+
+  const handleCheckPrs = async () => {
+    setCheckingPrs(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("check-pr-status", {
+        method: "POST",
+      });
+      if (error) throw error;
+      toast.success(`检查完成！共检查 ${data.checked} 个 PR，${data.merged} 个已合并`);
+      refetchAvailable();
+    } catch (e: any) {
+      toast.error(`检查失败: ${e.message}`);
+    } finally {
+      setCheckingPrs(false);
+    }
+  };
 
   const handleSync = async () => {
     setSyncing(true);
@@ -100,10 +117,16 @@ const Index = () => {
                 </Button>
               )}
               {isAdmin && (
-                <Button onClick={handleSync} disabled={syncing} size="sm" className="gap-2">
-                  <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
-                  <span className="hidden sm:inline">{syncing ? "同步中..." : "同步数据"}</span>
-                </Button>
+                <>
+                  <Button onClick={handleCheckPrs} disabled={checkingPrs} variant="outline" size="sm" className="gap-2">
+                    <GitPullRequest className={`h-4 w-4 ${checkingPrs ? "animate-spin" : ""}`} />
+                    <span className="hidden sm:inline">{checkingPrs ? "检查中..." : "检查 PR"}</span>
+                  </Button>
+                  <Button onClick={handleSync} disabled={syncing} size="sm" className="gap-2">
+                    <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
+                    <span className="hidden sm:inline">{syncing ? "同步中..." : "同步数据"}</span>
+                  </Button>
+                </>
               )}
             </div>
           </div>
