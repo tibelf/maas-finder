@@ -10,9 +10,10 @@ interface Props {
   sortBy?: SortField;
   sortOrder?: "asc" | "desc";
   onSort?: (field: SortField) => void;
+  onRequestLogin?: () => void;
 }
 
-export function ProjectTable({ projects, tabStatus, sortBy, sortOrder, onSort }: Props) {
+export function ProjectTable({ projects, tabStatus, sortBy, sortOrder, onSort, onRequestLogin }: Props) {
   const SortHeader = ({ field, children }: { field: SortField; children: React.ReactNode }) => (
     <TableHead
       className={onSort ? "cursor-pointer select-none hover:text-foreground transition-colors" : ""}
@@ -49,7 +50,7 @@ export function ProjectTable({ projects, tabStatus, sortBy, sortOrder, onSort }:
         </TableHeader>
         <TableBody>
           {projects.map((p) => (
-            <ProjectRow key={p.id} project={p} tabStatus={tabStatus} />
+            <ProjectRow key={p.id} project={p} tabStatus={tabStatus} onRequestLogin={onRequestLogin} />
           ))}
         </TableBody>
       </Table>

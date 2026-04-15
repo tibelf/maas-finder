@@ -4,14 +4,16 @@ import { useAuth, type AuthUser } from "@/hooks/useAuth";
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
-  signInWithGithub: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  signUpWithEmail: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
   user: null,
   loading: true,
-  signInWithGithub: async () => {},
+  signInWithEmail: async () => {},
+  signUpWithEmail: async () => {},
   signOut: async () => {},
 });
 

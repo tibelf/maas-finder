@@ -8,8 +8,7 @@ export interface ProjectClaim {
   id: string;
   project_id: string;
   user_id: string;
-  github_username: string;
-  github_avatar_url: string;
+  user_email: string;
   status: ClaimStatus;
   pr_url: string | null;
   pr_number: number | null;
@@ -109,8 +108,7 @@ export function useClaimProject() {
       const { error } = await supabase.from("project_claims").insert({
         project_id: projectId,
         user_id: user.id,
-        github_username: user.githubUsername,
-        github_avatar_url: user.githubAvatarUrl,
+        user_email: user.email,
         status: "claimed",
       });
       if (error) throw error;

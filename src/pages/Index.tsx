@@ -3,17 +3,19 @@ import { useGithubProjects, useProjectStats, type ProjectFilters } from "@/hooks
 import { useProjectsWithClaims, useClaimCounts, type ProjectWithClaim } from "@/hooks/useProjectClaims";
 import { ProjectTable } from "@/components/ProjectTable";
 import { ProjectFiltersBar } from "@/components/ProjectFiltersBar";
+import { AuthDialog } from "@/components/AuthDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { RefreshCw, Database, ChartBar as BarChart3, Loader as Loader2, Github, LogOut } from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { RefreshCw, Database, ChartBar as BarChart3, Loader as Loader2, LogOut } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import type { TabStatus } from "@/components/ProjectCard";
 
 const Index = () => {
-  const { user, loading: authLoading, signInWithGithub, signOut } = useAuthContext();
+  const { user, loading: authLoading, signOut } = useAuthContext();
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
 
   const [activeTab, setActiveTab] = useState<TabStatus>("available");
   const [filters, setFilters] = useState<ProjectFilters>({
@@ -70,6 +72,7 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <AuthDialog open={authDialogOpen} onClose={() => setAuthDialogOpen(false)} />
       <header className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -84,18 +87,16 @@ const Index = () => {
                 user ? (
                   <div className="flex items-center gap-2">
                     <Avatar className="h-7 w-7">
-                      <AvatarImage src={user.githubAvatarUrl} />
-                      <AvatarFallback>{user.githubUsername[0]?.toUpperCase()}</AvatarFallback>
+                      <AvatarFallback>{user.displayName[0]?.toUpperCase()}</AvatarFallback>
                     </Avatar>
-                    <span className="text-sm font-medium hidden sm:inline">{user.githubUsername}</span>
+                    <span className="text-sm font-medium hidden sm:inline">{user.displayName}</span>
                     <Button variant="ghost" size="sm" onClick={signOut} className="h-7 w-7 p-0">
                       <LogOut className="h-4 w-4" />
                     </Button>
                   </div>
                 ) : (
-                  <Button variant="outline" size="sm" onClick={signInWithGithub} className="gap-2">
-                    <Github className="h-4 w-4" />
-                    GitHub 登录
+                  <Button variant="outline" size="sm" onClick={() => setAuthDialogOpen(true)}>
+                    登录 / 注册
                   </Button>
                 )
               )}
@@ -194,7 +195,7 @@ const Index = () => {
             ) : (
               <>
                 <p className="text-sm text-muted-foreground">已加载 {availableProjects.length} 个项目</p>
-                <ProjectTable projects={availableProjects} tabStatus="available" />
+                <ProjectTable projects={availableProjects} tabStatus="available" onRequestLogin={() => setAuthDialogOpen(true)} />
                 <div ref={sentinelRef} className="flex justify-center py-4">
                   {isFetchingNextPage && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
                   {!hasNextPage && availableProjects.length > 0 && (

@@ -1,22 +1,15 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import type { User, Session } from "@supabase/supabase-js";
+import type { Session } from "@supabase/supabase-js";
 
 export interface AuthUser {
   id: string;
-  githubUsername: string;
-  githubAvatarUrl: string;
-  email: string | null;
+  email: string;
+  displayName: string;
 }
 
-function extractGithubInfo(user: User): AuthUser {
-  const meta = user.user_metadata || {};
-  return {
-    id: user.id,
-    githubUsername: meta.user_name || meta.preferred_username || meta.login || "",
-    githubAvatarUrl: meta.avatar_url || "",
-    email: user.email || null,
-  };
+function makeAuthUser(id: string, email: string): AuthUser {
+  return { id, email, displayName: email.split("@")[0] };
 }
 
 export function useAuth() {
@@ -27,30 +20,31 @@ export function useAuth() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      setUser(session?.user ? extractGithubInfo(session.user) : null);
+      setUser(session?.user ? makeAuthUser(session.user.id, session.user.email ?? "") : null);
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
       setSession(session);
-      setUser(session?.user ? extractGithubInfo(session.user) : null);
+      setUser(session?.user ? makeAuthUser(session.user.id, session.user.email ?? "") : null);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const signInWithGithub = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: "github",
-      options: {
-        redirectTo: window.location.origin,
-      },
-    });
+  const signInWithEmail = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+  };
+
+  const signUpWithEmail = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signUp({ email, password });
+    if (error) throw error;
   };
 
   const signOut = async () => {
     await supabase.auth.signOut();
   };
 
-  return { user, session, loading, signInWithGithub, signOut };
+  return { user, session, loading, signInWithEmail, signUpWithEmail, signOut };
 }

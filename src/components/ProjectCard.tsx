@@ -3,7 +3,7 @@ import { Star, GitFork, ExternalLink, Clock, GitPullRequest } from "lucide-react
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TableCell, TableRow } from "@/components/ui/table";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { PrSubmitDialog } from "@/components/PrSubmitDialog";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useClaimProject, useAbandonClaim, type ProjectWithClaim } from "@/hooks/useProjectClaims";
@@ -14,6 +14,7 @@ export type TabStatus = "available" | "claimed" | "pr_submitted" | "merged";
 interface Props {
   project: ProjectWithClaim;
   tabStatus: TabStatus;
+  onRequestLogin?: () => void;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -40,8 +41,8 @@ function formatCount(n: number) {
   return String(n);
 }
 
-export function ProjectRow({ project, tabStatus }: Props) {
-  const { user, signInWithGithub } = useAuthContext();
+export function ProjectRow({ project, tabStatus, onRequestLogin }: Props) {
+  const { user } = useAuthContext();
   const claimProject = useClaimProject();
   const abandonClaim = useAbandonClaim();
   const [prDialogOpen, setPrDialogOpen] = useState(false);
@@ -50,8 +51,7 @@ export function ProjectRow({ project, tabStatus }: Props) {
 
   const handleClaim = async () => {
     if (!user) {
-      toast.info("请先登录 GitHub 账号");
-      signInWithGithub();
+      onRequestLogin?.();
       return;
     }
     try {
@@ -136,17 +136,11 @@ export function ProjectRow({ project, tabStatus }: Props) {
             {project.claim && (
               <div className="flex items-center gap-2">
                 <Avatar className="h-6 w-6">
-                  <AvatarImage src={project.claim.github_avatar_url} />
-                  <AvatarFallback>{project.claim.github_username[0]?.toUpperCase()}</AvatarFallback>
+                  <AvatarFallback>{project.claim.user_email[0]?.toUpperCase()}</AvatarFallback>
                 </Avatar>
-                <a
-                  href={`https://github.com/${project.claim.github_username}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {project.claim.github_username}
-                </a>
+                <span className="text-sm text-muted-foreground truncate max-w-[120px]">
+                  {project.claim.user_email.split("@")[0]}
+                </span>
               </div>
             )}
           </TableCell>
