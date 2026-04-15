@@ -16,6 +16,7 @@ import { AddProjectDialog } from "@/components/AddProjectDialog";
 
 const Index = () => {
   const { user, loading: authLoading, signOut } = useAuthContext();
+  const isAdmin = user?.email === "zhulang@qiniu.com";
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
 
   const [activeTab, setActiveTab] = useState<TabStatus>("available");
@@ -98,10 +99,12 @@ const Index = () => {
                   <span className="hidden sm:inline">添加项目</span>
                 </Button>
               )}
-              <Button onClick={handleSync} disabled={syncing} size="sm" className="gap-2">
-                <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
-                <span className="hidden sm:inline">{syncing ? "同步中..." : "同步数据"}</span>
-              </Button>
+              {isAdmin && (
+                <Button onClick={handleSync} disabled={syncing} size="sm" className="gap-2">
+                  <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
+                  <span className="hidden sm:inline">{syncing ? "同步中..." : "同步数据"}</span>
+                </Button>
+              )}
             </div>
           </div>
         </div>
