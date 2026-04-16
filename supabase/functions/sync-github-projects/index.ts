@@ -66,6 +66,10 @@ const INTL_COMPETITORS = [
   'openrouter',
   'deepinfra',
   'novita',
+  'nousresearch',                // Nous Research portal
+  'xiaomi',                      // Xiaomi MiMo API platform
+  'z.ai',                        // Z.AI / GLM (智谱国际品牌)
+  'stepfun',                     // 阶跃星辰
 ]
 
 const ALL_COMPETITORS = [...new Set([
@@ -85,7 +89,7 @@ const QINIU_TERMS = [
 // Brand canonicalization — `zhipuai` + `zhipu` both map to "zhipu", so they
 // only count once toward the ≥2 threshold.
 function canonicalBrand(term: string): string {
-  if (term === 'zhipuai' || term === 'zhipu') return 'zhipu'
+  if (term === 'zhipuai' || term === 'zhipu' || term === 'z.ai') return 'zhipu'
   if (term === 'togetherai' || term === 'together.ai') return 'together'
   if (term === 'fireworks ai' || term === 'fireworks.ai') return 'fireworks'
   return term
@@ -148,9 +152,58 @@ async function fetchText(url: string): Promise<string> {
 }
 
 /**
- * Fetch README + a few common dependency manifests from the default branch.
- * We only look at small text files, capped per-file, to keep latency and
- * memory in check.
+ * Common provider directory paths to probe. For each path we:
+ *   1. List the directory via GitHub Contents API → extract filenames
+ *      (e.g. "minimax.md" → contributes "minimax" to the haystack)
+ *   2. Try to fetch a well-known index file inside the same directory
+ *      (index.md / README.md) which often lists all providers in one place.
+ *
+ * Only paths that return HTTP 200 contribute anything; 404s are silently
+ * skipped. At most 1 API call per candidate path (listing), plus 1 raw
+ * fetch for the index file — cheap relative to the README fetch.
+ */
+const PROVIDER_DIR_CANDIDATES = [
+  'docs/providers',
+  'docs/llm-providers',
+  'providers',
+  'src/providers',
+  'packages/providers',
+]
+
+const PROVIDER_INDEX_NAMES = ['index.md', 'README.md']
+
+async function fetchProviderDirs(repo: GitHubRepo, token: string): Promise<string> {
+  const branch = repo.default_branch || 'main'
+  const raw = `https://raw.githubusercontent.com/${repo.full_name}/${branch}`
+  const parts: string[] = []
+
+  for (const dir of PROVIDER_DIR_CANDIDATES) {
+    // 1. List directory — filenames alone are enough for competitor matching.
+    const listing = await fetchGitHub(
+      `/repos/${repo.full_name}/contents/${dir}?ref=${branch}`,
+      token
+    )
+    if (!Array.isArray(listing)) continue   // 404 or not a directory
+
+    const filenames = listing.map((f: { name: string }) => f.name).join(' ')
+    parts.push(filenames)
+
+    // 2. Try to fetch a known index file inside the directory.
+    for (const indexName of PROVIDER_INDEX_NAMES) {
+      const indexText = await fetchText(`${raw}/${dir}/${indexName}`)
+      if (indexText) {
+        parts.push(indexText.slice(0, 15_000))
+        break   // one index file per directory is enough
+      }
+    }
+  }
+
+  return parts.join('\n')
+}
+
+/**
+ * Fetch README + dependency manifests + provider directory hints.
+ * Sizes are capped per-file to keep latency and memory in check.
  */
 async function fetchRepoContent(repo: GitHubRepo, token: string): Promise<string> {
   const branch = repo.default_branch || 'main'
@@ -175,12 +228,13 @@ async function fetchRepoContent(repo: GitHubRepo, token: string): Promise<string
     manifestPaths.map(p => fetchText(`${raw}/${p}`))
   )
 
-  // Cap sizes: README 20KB, each manifest 10KB. The terms we're looking for
-  // are short brand names — a full README rarely helps beyond the first
-  // few thousand chars.
+  // Provider directory filenames + index files.
+  const providerDirs = await fetchProviderDirs(repo, token)
+
   return [
     readme.slice(0, 20_000),
     ...manifests.map(m => m.slice(0, 10_000)),
+    providerDirs,
   ].join('\n')
 }
 
