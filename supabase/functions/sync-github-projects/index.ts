@@ -19,10 +19,8 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
  *     algorithm metaphor), `together ai` (spaced — hits liteLLM doc links),
  *     `anyscale` (only in code comments), `bigmodel` (Claude Code tutorial
  *     noise).
- *   - NEW patch (from Leader discussion): require ≥2 distinct competitor
- *     hits for inclusion. A single hit is too noisy (router/gateway comparison
- *     tables, first-party SDKs, doc-only mentions all trigger single hits).
- *     Requiring two independent competitor names filters most of these out.
+ *   - Require ≥2 distinct competitor brands for inclusion (Leader-proposed).
+ *   - Exclude repos already mentioning Qiniu (already integrated, not a target).
  */
 
 const corsHeaders = {
@@ -33,61 +31,61 @@ const corsHeaders = {
 
 const GITHUB_API = 'https://api.github.com'
 const PER_PAGE = 30
-const MIN_COMPETITOR_HITS = 2   // ≥2 rule
+const MIN_COMPETITOR_HITS = 2        // ≥2 distinct brands required
+const FETCH_TIMEOUT_MS   = 10_000    // 10 s per outbound request
+const MAX_DIR_ENTRIES    = 200       // cap filename listing to avoid memory bloat
 
 // ── Search queries ───────────────────────────────────────────────────────────
-// Kept broad: competitor rule does the actual filtering downstream.
 const SEARCH_QUERIES = [
   'ai agent framework llm stars:>500',
   'rag chatbot openai stars:>500',
   'llm application framework stars:>500',
 ]
 
-// ── Competitor list (17 terms, 14 canonical brands) ──────────────────────────
-// Domestic MaaS — strongest signal: these brands simply don't appear unless
-// the project has explicit multi-provider support.
+// ── Competitor list ──────────────────────────────────────────────────────────
+// Domestic MaaS
 const DOMESTIC_COMPETITORS = [
-  'siliconflow',    // 硅基流动
-  'dashscope',      // 阿里云百炼
-  'qianfan',        // 百度千帆
-  'zhipuai', 'zhipu', // 智谱 AI
-  'minimax',        // MiniMax
-  'moonshot',       // 月之暗面 / Kimi
-  'volcengine',     // 字节跳动火山引擎
-  'lingyiwanwu',    // 零一万物
-  'baichuan',       // 百川智能
+  'siliconflow',          // 硅基流动
+  'dashscope',            // 阿里云百炼
+  'qianfan',              // 百度千帆
+  'zhipuai', 'zhipu',     // 智谱 AI
+  'minimax',              // MiniMax
+  'moonshot',             // 月之暗面 / Kimi
+  'volcengine',           // 字节跳动火山引擎
+  'lingyiwanwu',          // 零一万物
+  'baichuan',             // 百川智能
+  'stepfun',              // 阶跃星辰
 ]
 
-// International tier-2 — presence implies the project accepts non-OpenAI/
-// non-Anthropic providers.
+// International tier-2
 const INTL_COMPETITORS = [
-  'togetherai', 'together.ai',   // Together AI (no spaced form)
+  'togetherai', 'together.ai',
   'fireworks ai', 'fireworks.ai',
   'openrouter',
   'deepinfra',
   'novita',
-  'nousresearch',                // Nous Research portal
-  'xiaomi',                      // Xiaomi MiMo API platform
-  'z.ai',                        // Z.AI / GLM (智谱国际品牌)
-  'stepfun',                     // 阶跃星辰
+  'nousresearch',         // Nous Research portal
+  'xiaomi',               // Xiaomi MiMo API platform
 ]
+
+// Short dot-separated terms that need word-boundary matching to avoid
+// false hits in hostnames like amz.ai or myz.ai-client.
+const DOTAI_COMPETITORS = ['z.ai']
 
 const ALL_COMPETITORS = [...new Set([
   ...DOMESTIC_COMPETITORS,
   ...INTL_COMPETITORS,
+  ...DOTAI_COMPETITORS,
 ])]
 
-// ── Qiniu exclusion list ─────────────────────────────────────────────────────
-// If the project already mentions Qiniu MaaS by name, it is already integrated
-// and is not a new outreach target. Both the ASCII brand name and the Chinese
-// characters are checked since community projects may use either form.
+// ── Qiniu exclusion ──────────────────────────────────────────────────────────
 const QINIU_TERMS = [
-  'qiniu',   // official romanization used in SDK names, docs, URLs
-  '七牛',    // Chinese brand name (appears in README of Chinese-first projects)
+  'qiniu',
+  '七牛',
 ]
 
-// Brand canonicalization — `zhipuai` + `zhipu` both map to "zhipu", so they
-// only count once toward the ≥2 threshold.
+// ── Brand canonicalization ───────────────────────────────────────────────────
+// Aliases of the same brand count as one hit toward the ≥2 threshold.
 function canonicalBrand(term: string): string {
   if (term === 'zhipuai' || term === 'zhipu' || term === 'z.ai') return 'zhipu'
   if (term === 'togetherai' || term === 'together.ai') return 'together'
@@ -95,7 +93,21 @@ function canonicalBrand(term: string): string {
   return term
 }
 
-// ── Category mapping (unchanged) ────────────────────────────────────────────
+// ── Word-boundary-aware matching ─────────────────────────────────────────────
+// `z.ai` must not match inside hostnames like `amz.ai`. Require a non-alnum
+// boundary on both sides.
+const BOUNDARY_TERMS = new Set(DOTAI_COMPETITORS.map(t => t.toLowerCase()))
+
+function matchesTerm(haystack: string, term: string): boolean {
+  const t = term.toLowerCase()
+  if (!BOUNDARY_TERMS.has(t)) {
+    return haystack.includes(t)
+  }
+  const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`, 'i').test(haystack)
+}
+
+// ── Category mapping ─────────────────────────────────────────────────────────
 const CATEGORY_MAP: Record<string, string[]> = {
   agent: ['agent', 'autonomous', 'auto-gpt', 'crew', 'swarm', 'autogen'],
   framework: ['framework', 'sdk', 'library', 'toolkit'],
@@ -126,24 +138,53 @@ function categorize(repo: GitHubRepo): string {
   return 'tool'
 }
 
+// ── HTTP helpers ─────────────────────────────────────────────────────────────
+
+function makeAbortSignal(): AbortSignal {
+  return AbortSignal.timeout(FETCH_TIMEOUT_MS)
+}
+
+/**
+ * Fetch a GitHub API endpoint.
+ * - Returns null for expected non-2xx responses (404, etc.).
+ * - Throws on 403/429 so rate-limit errors propagate to the caller and abort
+ *   the run with a clear error message instead of silently shrinking results.
+ * - Returns null (logs warning) on network/timeout errors.
+ */
 async function fetchGitHub(path: string, token: string): Promise<any> {
-  const res = await fetch(`${GITHUB_API}${path}`, {
-    headers: {
-      'Authorization': `token ${token}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'MaaS-Finder-CompetitorScan',
-    },
-  })
-  if (!res.ok) {
-    console.error(`GitHub API error ${res.status} for ${path}`)
+  let res: Response
+  try {
+    res = await fetch(`${GITHUB_API}${path}`, {
+      signal: makeAbortSignal(),
+      headers: {
+        'Authorization': `token ${token}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'MaaS-Finder-CompetitorScan',
+      },
+    })
+  } catch (err) {
+    console.warn(`fetchGitHub network error for ${path}:`, (err as Error).message)
     return null
   }
+
+  if (res.status === 403 || res.status === 429) {
+    const reset = res.headers.get('x-ratelimit-reset')
+    throw new Error(
+      `GitHub rate limit hit (${res.status}) for ${path}. Reset at: ${reset ?? 'unknown'}`
+    )
+  }
+
+  if (!res.ok) return null
   return res.json()
 }
 
+/** Fetch raw text from any URL; returns '' on error or timeout. */
 async function fetchText(url: string): Promise<string> {
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': 'MaaS-Finder-CompetitorScan' } })
+    const res = await fetch(url, {
+      signal: makeAbortSignal(),
+      headers: { 'User-Agent': 'MaaS-Finder-CompetitorScan' },
+    })
     if (!res.ok) return ''
     return await res.text()
   } catch {
@@ -151,17 +192,11 @@ async function fetchText(url: string): Promise<string> {
   }
 }
 
-/**
- * Common provider directory paths to probe. For each path we:
- *   1. List the directory via GitHub Contents API → extract filenames
- *      (e.g. "minimax.md" → contributes "minimax" to the haystack)
- *   2. Try to fetch a well-known index file inside the same directory
- *      (index.md / README.md) which often lists all providers in one place.
- *
- * Only paths that return HTTP 200 contribute anything; 404s are silently
- * skipped. At most 1 API call per candidate path (listing), plus 1 raw
- * fetch for the index file — cheap relative to the README fetch.
- */
+// ── Provider-directory scanning ──────────────────────────────────────────────
+// Projects like openclaw store their provider list under docs/providers/*.md.
+// We list each candidate directory (filenames alone carry the provider name)
+// and try to fetch a summary index file (index.md / README.md).
+
 const PROVIDER_DIR_CANDIDATES = [
   'docs/providers',
   'docs/llm-providers',
@@ -178,22 +213,24 @@ async function fetchProviderDirs(repo: GitHubRepo, token: string): Promise<strin
   const parts: string[] = []
 
   for (const dir of PROVIDER_DIR_CANDIDATES) {
-    // 1. List directory — filenames alone are enough for competitor matching.
     const listing = await fetchGitHub(
       `/repos/${repo.full_name}/contents/${dir}?ref=${branch}`,
       token
     )
-    if (!Array.isArray(listing)) continue   // 404 or not a directory
+    if (!Array.isArray(listing)) continue
 
-    const filenames = listing.map((f: { name: string }) => f.name).join(' ')
+    // Cap entries to avoid memory bloat from unusually large directories.
+    const filenames = listing
+      .slice(0, MAX_DIR_ENTRIES)
+      .map((f: { name: string }) => f.name)
+      .join(' ')
     parts.push(filenames)
 
-    // 2. Try to fetch a known index file inside the directory.
     for (const indexName of PROVIDER_INDEX_NAMES) {
       const indexText = await fetchText(`${raw}/${dir}/${indexName}`)
       if (indexText) {
         parts.push(indexText.slice(0, 15_000))
-        break   // one index file per directory is enough
+        break
       }
     }
   }
@@ -201,22 +238,18 @@ async function fetchProviderDirs(repo: GitHubRepo, token: string): Promise<strin
   return parts.join('\n')
 }
 
-/**
- * Fetch README + dependency manifests + provider directory hints.
- * Sizes are capped per-file to keep latency and memory in check.
- */
+// ── Content fetcher ──────────────────────────────────────────────────────────
+
 async function fetchRepoContent(repo: GitHubRepo, token: string): Promise<string> {
   const branch = repo.default_branch || 'main'
   const raw = `https://raw.githubusercontent.com/${repo.full_name}/${branch}`
 
-  // README via GitHub API (handles README.md, README.rst, etc.)
   const readmeMeta = await fetchGitHub(`/repos/${repo.full_name}/readme`, token)
   let readme = ''
   if (readmeMeta?.download_url) {
     readme = await fetchText(readmeMeta.download_url)
   }
 
-  // Dependency manifests — try common filenames, ignore 404s silently.
   const manifestPaths = [
     'requirements.txt',
     'pyproject.toml',
@@ -228,7 +261,6 @@ async function fetchRepoContent(repo: GitHubRepo, token: string): Promise<string
     manifestPaths.map(p => fetchText(`${raw}/${p}`))
   )
 
-  // Provider directory filenames + index files.
   const providerDirs = await fetchProviderDirs(repo, token)
 
   return [
@@ -238,31 +270,27 @@ async function fetchRepoContent(repo: GitHubRepo, token: string): Promise<string
   ].join('\n')
 }
 
+// ── Competitor scanner ───────────────────────────────────────────────────────
+
 interface CompetitorMatch {
-  matched_terms: string[]   // raw terms matched (e.g. ['zhipuai', 'zhipu'])
-  distinct_brands: string[] // canonicalized unique brands (e.g. ['zhipu'])
-  hit_count: number         // = distinct_brands.length
+  matched_terms: string[]
+  distinct_brands: string[]
+  hit_count: number
 }
 
 function scanCompetitors(haystack: string): CompetitorMatch {
-  const text = haystack.toLowerCase()
-  const matched_terms = ALL_COMPETITORS.filter(c => text.includes(c.toLowerCase()))
+  const lower = haystack.toLowerCase()
+  const matched_terms = ALL_COMPETITORS.filter(c => matchesTerm(lower, c))
   const distinct_brands = [...new Set(matched_terms.map(canonicalBrand))]
-  return {
-    matched_terms,
-    distinct_brands,
-    hit_count: distinct_brands.length,
-  }
+  return { matched_terms, distinct_brands, hit_count: distinct_brands.length }
 }
 
-/**
- * Returns true if the project already mentions Qiniu by name, meaning it has
- * been integrated and should NOT be surfaced as a new outreach candidate.
- */
 function hasQiniuAlready(haystack: string): boolean {
   const lower = haystack.toLowerCase()
   return QINIU_TERMS.some(t => lower.includes(t.toLowerCase()))
 }
+
+// ── Edge Function ────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -270,22 +298,32 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // ── Env validation ───────────────────────────────────────────────────────
     const githubToken = Deno.env.get('GITHUB_TOKEN')
     if (!githubToken) {
       return new Response(JSON.stringify({ error: 'GITHUB_TOKEN not configured' }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    if (!supabaseUrl || !supabaseKey) {
+      return new Response(
+        JSON.stringify({ error: 'SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not configured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-        // ── 1. Candidate discovery — only repos created in last 7 days ──────────
+    // ── 1. Candidate discovery ───────────────────────────────────────────────
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
     const allRepos = new Map<number, GitHubRepo>()
+
     for (const query of SEARCH_QUERIES) {
       const q = `${query} created:>${since}`
+      // Rate-limit errors from fetchGitHub propagate here → top-level catch → 500.
       const data = await fetchGitHub(
         `/search/repositories?q=${encodeURIComponent(q)}&sort=stars&order=desc&per_page=${PER_PAGE}&page=1`,
         githubToken
@@ -298,18 +336,28 @@ Deno.serve(async (req) => {
       await new Promise(r => setTimeout(r, 300))
     }
 
-    // ── 2. For each candidate, fetch README + manifests and run competitor scan ─
+    // ── 2. Per-repo scanning ─────────────────────────────────────────────────
     let scanned = 0
     let accepted = 0
     let skippedExisting = 0
     let singleHitRejected = 0
     let qiniuAlreadySkipped = 0
+    let repoErrors = 0
     let inserted = 0
 
     for (const repo of allRepos.values()) {
       if (repo.archived) continue
 
-      const content = await fetchRepoContent(repo, githubToken)
+      // Isolate per-repo fetch errors so one bad repo doesn't abort the run.
+      let content = ''
+      try {
+        content = await fetchRepoContent(repo, githubToken)
+      } catch (err) {
+        console.error(`Error fetching ${repo.full_name}:`, (err as Error).message)
+        repoErrors++
+        continue
+      }
+
       scanned++
 
       const haystack = [
@@ -320,14 +368,11 @@ Deno.serve(async (req) => {
 
       const match = scanCompetitors(haystack)
 
-      // ≥2 distinct competitor brands required (Leader-proposed patch).
       if (match.hit_count < MIN_COMPETITOR_HITS) {
         if (match.hit_count === 1) singleHitRejected++
         continue
       }
 
-      // Exclude projects that already mention Qiniu — already integrated,
-      // not a new outreach target.
       if (hasQiniuAlready(haystack)) {
         qiniuAlreadySkipped++
         continue
@@ -335,7 +380,6 @@ Deno.serve(async (req) => {
 
       accepted++
 
-      // Only insert new projects — skip any already in the database.
       const { data: existing } = await supabase
         .from('github_projects')
         .select('id')
@@ -382,17 +426,19 @@ Deno.serve(async (req) => {
       single_hit_rejected: singleHitRejected,
       qiniu_already_skipped: qiniuAlreadySkipped,
       skipped_existing: skippedExisting,
+      repo_errors: repoErrors,
       inserted,
       rule: 'competitor-sourcing',
       min_competitor_hits: MIN_COMPETITOR_HITS,
       competitor_list: ALL_COMPETITORS,
     }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (error) {
+    // Top-level: catches rate-limit throws from fetchGitHub.
     console.error('Sync error:', error)
     return new Response(JSON.stringify({ error: (error as Error).message }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }
 })
