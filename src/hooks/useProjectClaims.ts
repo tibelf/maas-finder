@@ -29,6 +29,24 @@ export interface ProjectWithClaim {
   claim: ProjectClaim | null;
 }
 
+export interface UseProjectsWithClaimsOptions {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  languages?: string[];
+  categories?: string[];
+}
+
+export interface PaginatedProjectsResult {
+  items: ProjectWithClaim[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export const PROJECTS_PAGE_SIZE = 20;
+
 export function useAllClaims() {
   return useQuery({
     queryKey: ["project-claims"],
@@ -44,9 +62,17 @@ export function useAllClaims() {
   });
 }
 
-export function useProjectsWithClaims(status: ClaimStatus | "available") {
+export function useProjectsWithClaims(
+  status: ClaimStatus | "available",
+  options: UseProjectsWithClaimsOptions = {},
+) {
+  const page = Math.max(options.page ?? 1, 1);
+  const pageSize = Math.max(options.pageSize ?? PROJECTS_PAGE_SIZE, 1);
+  const rangeStart = (page - 1) * pageSize;
+  const rangeEnd = rangeStart + pageSize - 1;
+
   return useQuery({
-    queryKey: ["projects-with-claims", status],
+    queryKey: ["projects-with-claims", status, page, pageSize, options.search, options.languages, options.categories],
     queryFn: async () => {
       if (status === "available") {
         const { data: claimedIds, error: claimedErr } = await supabase
@@ -59,26 +85,59 @@ export function useProjectsWithClaims(status: ClaimStatus | "available") {
 
         let query = supabase
           .from("github_projects")
-          .select("*")
-          .order("stars", { ascending: false });
+          .select("*", { count: "exact" })
+          .order("stars", { ascending: false })
+          .range(rangeStart, rangeEnd);
+
+        const search = options.search?.trim();
+        if (search) {
+          query = query.or(`full_name.ilike.%${search}%,description.ilike.%${search}%`);
+        }
+
+        if (options.languages && options.languages.length > 0) {
+          query = query.in("language", options.languages);
+        }
+
+        if (options.categories && options.categories.length > 0) {
+          query = query.in("category", options.categories);
+        }
 
         if (ids.length > 0) {
           query = query.not("id", "in", `(${ids.join(",")})`);
         }
 
-        const { data, error } = await query;
+        const { data, count, error } = await query;
         if (error) throw error;
-        return (data || []).map((p) => ({ ...p, claim: null })) as ProjectWithClaim[];
+
+        const total = count ?? 0;
+        return {
+          items: (data || []).map((p) => ({ ...p, claim: null })) as ProjectWithClaim[],
+          total,
+          page,
+          pageSize,
+          totalPages: Math.ceil(total / pageSize),
+        } as PaginatedProjectsResult;
       }
 
-      const { data: claims, error: claimErr } = await supabase
+      const { data: claims, count, error: claimErr } = await supabase
         .from("project_claims")
-        .select("*")
+        .select("*", { count: "exact" })
         .eq("status", status)
-        .order("updated_at", { ascending: false });
+        .order("updated_at", { ascending: false })
+        .range(rangeStart, rangeEnd);
       if (claimErr) throw claimErr;
 
-      if (!claims || claims.length === 0) return [];
+      const total = count ?? 0;
+
+      if (!claims || claims.length === 0) {
+        return {
+          items: [],
+          total,
+          page,
+          pageSize,
+          totalPages: Math.ceil(total / pageSize),
+        } as PaginatedProjectsResult;
+      }
 
       const projectIds = claims.map((c) => c.project_id);
       const { data: projects, error: projErr } = await supabase
@@ -89,13 +148,19 @@ export function useProjectsWithClaims(status: ClaimStatus | "available") {
 
       const projectMap = new Map((projects || []).map((p) => [p.id, p]));
 
-      return claims
-        .map((claim) => {
-          const project = projectMap.get(claim.project_id);
-          if (!project) return null;
-          return { ...project, claim: claim as ProjectClaim };
-        })
-        .filter(Boolean) as ProjectWithClaim[];
+      return {
+        items: claims
+          .map((claim) => {
+            const project = projectMap.get(claim.project_id);
+            if (!project) return null;
+            return { ...project, claim: claim as ProjectClaim };
+          })
+          .filter(Boolean) as ProjectWithClaim[],
+        total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize),
+      } as PaginatedProjectsResult;
     },
     staleTime: 30 * 1000,
   });

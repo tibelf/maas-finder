@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { KeyboardEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useProjectStats, type ProjectFilters } from "@/hooks/useGithubProjects";
-import { useProjectsWithClaims, useClaimCounts, useGlobalSearch, type ProjectWithClaim } from "@/hooks/useProjectClaims";
+import { useProjectsWithClaims, useClaimCounts, useGlobalSearch, PROJECTS_PAGE_SIZE } from "@/hooks/useProjectClaims";
 import { useActiveInitJob, useStartInitJob } from "@/hooks/useSyncJob";
 import { ProjectTable } from "@/components/ProjectTable";
 import { ProjectFiltersBar } from "@/components/ProjectFiltersBar";
@@ -17,6 +17,12 @@ import { useAuthContext } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import type { TabStatus } from "@/components/ProjectCard";
 import { AddProjectDialog } from "@/components/AddProjectDialog";
+import { Input } from "@/components/ui/input";
+
+function clampPage(page: number, totalPages: number) {
+  if (totalPages <= 0) return 1;
+  return Math.min(Math.max(page, 1), totalPages);
+}
 
 const Index = () => {
   const { user, loading: authLoading, signOut } = useAuthContext();
@@ -26,6 +32,18 @@ const Index = () => {
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
 
   const [activeTab, setActiveTab] = useState<TabStatus>("available");
+  const [tabPages, setTabPages] = useState<Record<TabStatus, number>>({
+    available: 1,
+    claimed: 1,
+    pr_submitted: 1,
+    merged: 1,
+  });
+  const [tabPageInputs, setTabPageInputs] = useState<Record<TabStatus, string>>({
+    available: "1",
+    claimed: "1",
+    pr_submitted: "1",
+    merged: "1",
+  });
   const [filters, setFilters] = useState<ProjectFilters>({
     search: "",
     languages: [],
@@ -43,21 +61,147 @@ const Index = () => {
   const { data: stats } = useProjectStats();
   const { data: claimCounts } = useClaimCounts();
 
-  const { data: allAvailableProjects, isLoading: availableLoading, error: availableError, refetch: refetchAvailable } = useProjectsWithClaims("available");
-
-  const availableProjects = (allAvailableProjects ?? []).filter((p) => {
-    const search = filters.search.toLowerCase();
-    if (search && !p.full_name.toLowerCase().includes(search) && !(p.description ?? "").toLowerCase().includes(search)) return false;
-    if (filters.categories.length > 0 && !filters.categories.includes(p.category ?? "")) return false;
-    if (filters.languages.length > 0 && !filters.languages.includes(p.language ?? "")) return false;
-    return true;
+  const {
+    data: availableData,
+    isLoading: availableLoading,
+    error: availableError,
+    refetch: refetchAvailable,
+  } = useProjectsWithClaims("available", {
+    page: tabPages.available,
+    pageSize: PROJECTS_PAGE_SIZE,
+    search: filters.search,
+    languages: filters.languages,
+    categories: filters.categories,
   });
-  const { data: claimedProjects, isLoading: claimedLoading } = useProjectsWithClaims("claimed");
-  const { data: prProjects, isLoading: prLoading } = useProjectsWithClaims("pr_submitted");
-  const { data: mergedProjects, isLoading: mergedLoading } = useProjectsWithClaims("merged");
+  const { data: claimedData, isLoading: claimedLoading } = useProjectsWithClaims("claimed", {
+    page: tabPages.claimed,
+    pageSize: PROJECTS_PAGE_SIZE,
+  });
+  const { data: prData, isLoading: prLoading } = useProjectsWithClaims("pr_submitted", {
+    page: tabPages.pr_submitted,
+    pageSize: PROJECTS_PAGE_SIZE,
+  });
+  const { data: mergedData, isLoading: mergedLoading } = useProjectsWithClaims("merged", {
+    page: tabPages.merged,
+    pageSize: PROJECTS_PAGE_SIZE,
+  });
+
+  const availableProjects = availableData?.items ?? [];
+  const claimedProjects = claimedData?.items ?? [];
+  const prProjects = prData?.items ?? [];
+  const mergedProjects = mergedData?.items ?? [];
 
   const isSearching = filters.search.trim().length > 0;
   const { data: globalSearchResults, isLoading: globalSearchLoading } = useGlobalSearch(filters.search);
+
+  useEffect(() => {
+    setTabPages((prev) => ({ ...prev, available: 1 }));
+    setTabPageInputs((prev) => ({ ...prev, available: "1" }));
+  }, [filters.search, filters.languages, filters.categories]);
+
+  const updateTabPage = (tab: TabStatus, page: number) => {
+    setTabPages((prev) => ({ ...prev, [tab]: page }));
+    setTabPageInputs((prev) => ({ ...prev, [tab]: String(page) }));
+  };
+
+  const normalizeTabPage = (tab: TabStatus, totalPages: number) => {
+    const next = clampPage(tabPages[tab], totalPages);
+    if (next !== tabPages[tab]) {
+      updateTabPage(tab, next);
+    }
+  };
+
+  useEffect(() => {
+    if (!availableData) return;
+    normalizeTabPage("available", availableData.totalPages);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableData]);
+
+  useEffect(() => {
+    if (!claimedData) return;
+    normalizeTabPage("claimed", claimedData.totalPages);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claimedData]);
+
+  useEffect(() => {
+    if (!prData) return;
+    normalizeTabPage("pr_submitted", prData.totalPages);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prData]);
+
+  useEffect(() => {
+    if (!mergedData) return;
+    normalizeTabPage("merged", mergedData.totalPages);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mergedData]);
+
+  const renderPagination = (tab: TabStatus, total: number, totalPages: number, isLoading: boolean) => {
+    if (isLoading || total === 0 || totalPages <= 1) return null;
+
+    const current = tabPages[tab];
+    const inputValue = tabPageInputs[tab];
+    const gotoPage = (targetPage: number) => {
+      updateTabPage(tab, clampPage(targetPage, totalPages));
+    };
+
+    const handleJump = () => {
+      const parsed = Number.parseInt(inputValue, 10);
+      if (Number.isNaN(parsed)) {
+        setTabPageInputs((prev) => ({ ...prev, [tab]: String(current) }));
+        return;
+      }
+      gotoPage(parsed);
+    };
+
+    const handlePageInputBlur = () => {
+      const parsed = Number.parseInt(inputValue, 10);
+      if (Number.isNaN(parsed)) {
+        setTabPageInputs((prev) => ({ ...prev, [tab]: String(current) }));
+        return;
+      }
+      setTabPageInputs((prev) => ({ ...prev, [tab]: String(clampPage(parsed, totalPages)) }));
+    };
+
+    const handlePageInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        handleJump();
+      }
+    };
+
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+        <p className="text-sm text-muted-foreground">
+          共 {total} 条，第 {current} / {totalPages} 页，每页 {PROJECTS_PAGE_SIZE} 条
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => gotoPage(1)} disabled={current === 1}>
+            首页
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => gotoPage(current - 1)} disabled={current === 1}>
+            上一页
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => gotoPage(current + 1)} disabled={current === totalPages}>
+            下一页
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => gotoPage(totalPages)} disabled={current === totalPages}>
+            尾页
+          </Button>
+          <Input
+            value={inputValue}
+            onChange={(event) => setTabPageInputs((prev) => ({ ...prev, [tab]: event.target.value }))}
+            onBlur={handlePageInputBlur}
+            onKeyDown={handlePageInputKeyDown}
+            className="h-8 w-20"
+            inputMode="numeric"
+            aria-label={`${tab} 跳转页码`}
+          />
+          <Button variant="secondary" size="sm" onClick={handleJump}>
+            跳转
+          </Button>
+        </div>
+      </div>
+    );
+  };
 
   const handleCheckPrs = async () => {
     setCheckingPrs(true);
@@ -289,8 +433,9 @@ const Index = () => {
                   </div>
                 ) : (
                   <>
-                    <p className="text-sm text-muted-foreground">已加载 {availableProjects.length} 个项目</p>
+                    <p className="text-sm text-muted-foreground">当前页 {availableProjects.length} 个项目</p>
                     <ProjectTable projects={availableProjects} tabStatus="available" onRequestLogin={() => setAuthDialogOpen(true)} />
+                    {renderPagination("available", availableData?.total ?? 0, availableData?.totalPages ?? 0, availableLoading)}
                   </>
                 )}
               </TabsContent>
@@ -307,7 +452,10 @@ const Index = () => {
                     <p>暂无认领中的项目</p>
                   </div>
                 ) : (
-                  <ProjectTable projects={claimedProjects} tabStatus="claimed" />
+                  <>
+                    <ProjectTable projects={claimedProjects} tabStatus="claimed" />
+                    {renderPagination("claimed", claimedData?.total ?? 0, claimedData?.totalPages ?? 0, claimedLoading)}
+                  </>
                 )}
               </TabsContent>
 
@@ -323,7 +471,10 @@ const Index = () => {
                     <p>暂无贡献中的项目</p>
                   </div>
                 ) : (
-                  <ProjectTable projects={prProjects} tabStatus="pr_submitted" />
+                  <>
+                    <ProjectTable projects={prProjects} tabStatus="pr_submitted" />
+                    {renderPagination("pr_submitted", prData?.total ?? 0, prData?.totalPages ?? 0, prLoading)}
+                  </>
                 )}
               </TabsContent>
 
@@ -339,7 +490,10 @@ const Index = () => {
                     <p>暂无已完成的项目</p>
                   </div>
                 ) : (
-                  <ProjectTable projects={mergedProjects} tabStatus="merged" />
+                  <>
+                    <ProjectTable projects={mergedProjects} tabStatus="merged" />
+                    {renderPagination("merged", mergedData?.total ?? 0, mergedData?.totalPages ?? 0, mergedLoading)}
+                  </>
                 )}
               </TabsContent>
             </Tabs>
