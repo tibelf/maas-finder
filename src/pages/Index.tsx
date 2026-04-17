@@ -10,7 +10,7 @@ import { AuthDialog } from "@/components/AuthDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { RefreshCw, Database, ChartBar as BarChart3, LogOut, CirclePlus as PlusCircle, GitPullRequest, Play, ScrollText } from "lucide-react";
+import { RefreshCw, Database, ChartBar as BarChart3, LogOut, CirclePlus as PlusCircle, GitPullRequest, Play, ScrollText, ExternalLink } from "lucide-react";
 import { GlobalSearchResults } from "@/components/GlobalSearchResults";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthContext } from "@/contexts/AuthContext";
@@ -178,6 +178,23 @@ const Index = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        <div className="rounded-lg border border-sky-200 bg-sky-50 dark:border-sky-800 dark:bg-sky-950/30 px-4 py-3 flex items-center gap-3 text-sm">
+          <GitPullRequest className="h-4 w-4 text-sky-600 dark:text-sky-400 shrink-0" />
+          <span className="text-sky-800 dark:text-sky-200">
+            想为项目贡献 MaaS 集成代码？参考{" "}
+            <a
+              href="https://github.com/AI-Hub-Growth/skillhub/tree/main/add-qiniu-maas"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-0.5 font-medium underline underline-offset-2 hover:text-sky-600 dark:hover:text-sky-300"
+            >
+              add-qiniu-maas skill 模板
+              <ExternalLink className="h-3 w-3" />
+            </a>{" "}
+            提交 PR 即可。
+          </span>
+        </div>
 
         {stats && stats.total > 0 && (
           <div className="grid grid-cols-3 gap-3">
