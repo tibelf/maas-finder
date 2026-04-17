@@ -18,6 +18,8 @@ export interface SyncJob {
   time_window_since: string | null;
   competitor_list: string[];
   min_competitor_hits: number;
+  max_stars: number | null;
+  min_stars_seen: number | null;
   started_at: string;
   finished_at: string | null;
   error_message: string | null;

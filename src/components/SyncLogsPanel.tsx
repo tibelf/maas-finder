@@ -169,6 +169,12 @@ function JobRow({ job }: { job: SyncJob }) {
             {job.time_window_since && (
               <span className="text-xs text-muted-foreground">· 时间窗口 {job.time_window_since} 起</span>
             )}
+            {job.job_type === "init" && (
+              <span className="text-xs text-muted-foreground">
+                · Star 区间 {job.max_stars !== null ? `500~${job.max_stars}` : "500+"}
+                {job.min_stars_seen !== null && ` (最低见到 ${job.min_stars_seen})`}
+              </span>
+            )}
           </div>
           <div className="flex gap-3 mt-1.5 text-xs text-muted-foreground flex-wrap">
             <span>扫描 {job.total_scanned}</span>

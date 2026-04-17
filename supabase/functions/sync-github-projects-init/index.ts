@@ -7,13 +7,19 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
  * Each invocation processes ONE page (100 repos) of ONE search query,
  * then saves progress. This avoids the 150s Edge Function timeout.
  *
+ * Star range segmentation:
+ *   - First run: searches stars:>500 (no upper bound)
+ *   - Subsequent runs: searches stars:>500 stars:<{prev_min_stars_seen}
+ *   - This ensures each init covers a new star range, avoiding duplicates
+ *
  * Flow:
  *   1. Find the active 'init' sync_job (status = 'running').
  *   2. If none exists, return immediately (cron will keep calling but noop).
- *   3. Fetch one page of one query, run competitor scan.
+ *   3. Fetch one page of one query (with dynamic star range), run competitor scan.
  *   4. Insert only NEW repos (skip existing github_ids).
  *   5. Write per-repo logs to sync_repo_logs.
- *   6. Advance progress. If all queries + pages are exhausted, mark completed.
+ *   6. Update min_stars_seen if we saw lower stars this batch.
+ *   7. Advance progress. If all queries + pages are exhausted, mark completed.
  */
 
 const corsHeaders = {
@@ -26,22 +32,23 @@ const GITHUB_API = 'https://api.github.com'
 const PER_PAGE = 100
 const MAX_PAGES = 10
 const MIN_COMPETITOR_HITS = 2
+const MIN_STARS = 500
 
-const SEARCH_QUERIES = [
-  'llm agent stars:>500',
-  'llm framework stars:>500',
-  'llm chatbot stars:>500',
-  'rag retrieval stars:>500',
-  'llm application stars:>500',
-  'llm proxy stars:>500',
-  'llm gateway stars:>500',
-  'openai compatible stars:>500',
-  'llm orchestration stars:>500',
-  'llm inference stars:>500',
-  'llm wrapper stars:>500',
-  'llm router stars:>500',
-  'large language model stars:>500',
-  'model serving stars:>500',
+const BASE_SEARCH_QUERIES = [
+  'llm agent',
+  'llm framework',
+  'llm chatbot',
+  'rag retrieval',
+  'llm application',
+  'llm proxy',
+  'llm gateway',
+  'openai compatible',
+  'llm orchestration',
+  'llm inference',
+  'llm wrapper',
+  'llm router',
+  'large language model',
+  'model serving',
 ]
 
 const DOMESTIC_COMPETITORS = [
@@ -103,6 +110,15 @@ function categorize(repo: GitHubRepo): string {
     if (keywords.some(k => text.includes(k))) return cat
   }
   return 'tool'
+}
+
+function buildSearchQueries(maxStars: number | null): string[] {
+  return BASE_SEARCH_QUERIES.map(base => {
+    if (maxStars !== null) {
+      return `${base} stars:>${MIN_STARS} stars:<${maxStars}`
+    }
+    return `${base} stars:>${MIN_STARS}`
+  })
 }
 
 async function fetchGitHub(path: string, token: string): Promise<any> {
@@ -185,12 +201,26 @@ Deno.serve(async (req) => {
         })
       }
 
+      // Determine max_stars for this run: lowest min_stars_seen from all completed init jobs
+      const { data: prevJobs } = await supabase
+        .from('sync_jobs')
+        .select('min_stars_seen')
+        .eq('job_type', 'init')
+        .eq('status', 'completed')
+        .not('min_stars_seen', 'is', null)
+        .order('min_stars_seen', { ascending: true })
+        .limit(1)
+
+      const maxStars: number | null = prevJobs && prevJobs.length > 0 ? prevJobs[0].min_stars_seen : null
+      const searchQueries = buildSearchQueries(maxStars)
+
       const { data: newJob, error: createErr } = await supabase
         .from('sync_jobs')
         .insert({
           job_type: 'init',
           status: 'running',
-          search_queries: SEARCH_QUERIES,
+          max_stars: maxStars,
+          search_queries: searchQueries,
           competitor_list: ALL_COMPETITORS,
           min_competitor_hits: MIN_COMPETITOR_HITS,
         })
@@ -199,7 +229,7 @@ Deno.serve(async (req) => {
 
       if (createErr) throw createErr
 
-      return new Response(JSON.stringify({ started: true, job_id: newJob.id }), {
+      return new Response(JSON.stringify({ started: true, job_id: newJob.id, max_stars: maxStars }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
     }
@@ -229,10 +259,16 @@ Deno.serve(async (req) => {
       })
     }
 
+    // Resolve max_stars and build search queries for this job
+    const jobMaxStars: number | null = job.max_stars ?? null
+    const searchQueries = (job.search_queries && job.search_queries.length > 0)
+      ? job.search_queries
+      : buildSearchQueries(jobMaxStars)
+
     // Back-fill search_queries if this job was created before logging was added
     if (!job.search_queries || job.search_queries.length === 0) {
       await supabase.from('sync_jobs').update({
-        search_queries: SEARCH_QUERIES,
+        search_queries: searchQueries,
         competitor_list: ALL_COMPETITORS,
         min_competitor_hits: MIN_COMPETITOR_HITS,
       }).eq('id', job.id)
@@ -242,7 +278,7 @@ Deno.serve(async (req) => {
     const page: number = job.current_page
 
     // All done?
-    if (queryIndex >= SEARCH_QUERIES.length) {
+    if (queryIndex >= searchQueries.length) {
       await supabase.from('sync_jobs').update({
         status: 'completed',
         finished_at: new Date().toISOString(),
@@ -253,7 +289,7 @@ Deno.serve(async (req) => {
       })
     }
 
-    const query = SEARCH_QUERIES[queryIndex]
+    const query = searchQueries[queryIndex]
 
     // Fetch one page of candidates
     const data = await fetchGitHub(
@@ -271,6 +307,7 @@ Deno.serve(async (req) => {
     let batchSkippedExisting = 0
     let batchSkippedQiniu = 0
     let batchErrors = 0
+    let batchMinStars: number | null = null
 
     const repoLogs: Array<{
       sync_job_id: string
@@ -287,6 +324,11 @@ Deno.serve(async (req) => {
     }> = []
 
     for (const repo of items) {
+      // Track minimum stars seen in this batch
+      if (batchMinStars === null || repo.stargazers_count < batchMinStars) {
+        batchMinStars = repo.stargazers_count
+      }
+
       if (repo.archived) {
         repoLogs.push({
           sync_job_id: job.id,
@@ -440,11 +482,18 @@ Deno.serve(async (req) => {
       await supabase.from('sync_repo_logs').insert(repoLogs)
     }
 
+    // Update min_stars_seen: keep the lowest value seen across all batches
+    const currentMinStars: number | null = job.min_stars_seen ?? null
+    let updatedMinStars: number | null = currentMinStars
+    if (batchMinStars !== null) {
+      updatedMinStars = currentMinStars === null ? batchMinStars : Math.min(currentMinStars, batchMinStars)
+    }
+
     // Advance progress
     const hasMorePages = items.length === PER_PAGE && page < MAX_PAGES && totalCount > page * PER_PAGE
     const nextQueryIndex = hasMorePages ? queryIndex : queryIndex + 1
     const nextPage = hasMorePages ? page + 1 : 1
-    const isFinished = nextQueryIndex >= SEARCH_QUERIES.length
+    const isFinished = nextQueryIndex >= searchQueries.length
 
     await supabase.from('sync_jobs').update({
       current_query_index: nextQueryIndex,
@@ -456,6 +505,7 @@ Deno.serve(async (req) => {
       total_skipped_existing: (job.total_skipped_existing ?? 0) + batchSkippedExisting,
       total_skipped_qiniu: (job.total_skipped_qiniu ?? 0) + batchSkippedQiniu,
       total_errors: (job.total_errors ?? 0) + batchErrors,
+      min_stars_seen: updatedMinStars,
       ...(isFinished ? { status: 'completed', finished_at: new Date().toISOString() } : {}),
     }).eq('id', job.id)
 
@@ -463,6 +513,7 @@ Deno.serve(async (req) => {
       job_id: job.id,
       query,
       page,
+      max_stars: jobMaxStars,
       batch_scanned: batchScanned,
       batch_inserted: batchInserted,
       batch_accepted: batchAccepted,
@@ -470,6 +521,7 @@ Deno.serve(async (req) => {
       batch_skipped_existing: batchSkippedExisting,
       batch_skipped_qiniu: batchSkippedQiniu,
       batch_errors: batchErrors,
+      batch_min_stars: batchMinStars,
       total_scanned: job.total_scanned + batchScanned,
       total_inserted: job.total_inserted + batchInserted,
       next_query_index: nextQueryIndex,
