@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useProjectStats, type ProjectFilters } from "@/hooks/useGithubProjects";
 import { useProjectsWithClaims, useClaimCounts, useGlobalSearch, type ProjectWithClaim } from "@/hooks/useProjectClaims";
@@ -10,18 +11,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { RefreshCw, Database, ChartBar as BarChart3, LogOut, CirclePlus as PlusCircle, GitPullRequest, Play } from "lucide-react";
+import { RefreshCw, Database, ChartBar as BarChart3, LogOut, CirclePlus as PlusCircle, GitPullRequest, Play, ScrollText } from "lucide-react";
 import { GlobalSearchResults } from "@/components/GlobalSearchResults";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import type { TabStatus } from "@/components/ProjectCard";
 import { AddProjectDialog } from "@/components/AddProjectDialog";
-import { SyncLogsPanel } from "@/components/SyncLogsPanel";
 
 const Index = () => {
   const { user, loading: authLoading, signOut } = useAuthContext();
   const isAdmin = user?.email === "zhulang@qiniu.com";
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
 
@@ -146,6 +147,10 @@ const Index = () => {
               )}
               {isAdmin && (
                 <>
+                  <Button onClick={() => navigate("/admin/sync-logs")} variant="outline" size="sm" className="gap-2">
+                    <ScrollText className="h-4 w-4" />
+                    <span className="hidden sm:inline">同步日志</span>
+                  </Button>
                   <Button onClick={handleCheckPrs} disabled={checkingPrs} variant="outline" size="sm" className="gap-2">
                     <GitPullRequest className={`h-4 w-4 ${checkingPrs ? "animate-spin" : ""}`} />
                     <span className="hidden sm:inline">{checkingPrs ? "检查中..." : "检查 PR"}</span>
@@ -218,13 +223,6 @@ const Index = () => {
                 <p className="text-xs text-muted-foreground">项目分类</p>
               </div>
             </div>
-          </div>
-        )}
-
-        {isAdmin && (
-          <div className="space-y-3">
-            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">同步日志</h2>
-            <SyncLogsPanel />
           </div>
         )}
 
