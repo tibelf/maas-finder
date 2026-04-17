@@ -3,13 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useProjectStats, type ProjectFilters } from "@/hooks/useGithubProjects";
 import { useProjectsWithClaims, useClaimCounts, useGlobalSearch, type ProjectWithClaim } from "@/hooks/useProjectClaims";
-import { useActiveInitJob, useStartInitJob, calcInitProgress } from "@/hooks/useSyncJob";
+import { useActiveInitJob, useStartInitJob } from "@/hooks/useSyncJob";
 import { ProjectTable } from "@/components/ProjectTable";
 import { ProjectFiltersBar } from "@/components/ProjectFiltersBar";
 import { AuthDialog } from "@/components/AuthDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { RefreshCw, Database, ChartBar as BarChart3, LogOut, CirclePlus as PlusCircle, GitPullRequest, Play, ScrollText } from "lucide-react";
 import { GlobalSearchResults } from "@/components/GlobalSearchResults";
@@ -104,7 +103,6 @@ const Index = () => {
     }
   };
 
-  const initProgress = initJob ? calcInitProgress(initJob) : 0;
   const initRunning = initJob?.status === "running";
   const initDone = initJob?.status === "completed";
 
@@ -180,25 +178,6 @@ const Index = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {isAdmin && initJob && (initRunning || initDone) && (
-          <div className="rounded-lg border bg-card p-4 space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-medium">
-                {initRunning ? "全量初始化进行中..." : "全量初始化已完成"}
-              </span>
-              <span className="text-muted-foreground">
-                已扫描 {initJob.total_scanned} 个 · 入库 {initJob.total_inserted} 个
-                {initRunning && ` · 第 ${initJob.current_query_index + 1}/12 组查询，第 ${initJob.current_page} 页`}
-              </span>
-            </div>
-            <Progress value={initProgress} className="h-2" />
-            {initDone && (
-              <p className="text-xs text-muted-foreground">
-                完成时间: {new Date(initJob.finished_at!).toLocaleString("zh-CN")}
-              </p>
-            )}
-          </div>
-        )}
 
         {stats && stats.total > 0 && (
           <div className="grid grid-cols-3 gap-3">
