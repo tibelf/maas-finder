@@ -238,22 +238,37 @@ export interface ProjectWithGlobalStatus extends ProjectWithClaim {
   globalStatus: GlobalSearchStatus;
 }
 
-export function useGlobalSearch(search: string) {
+export interface PaginatedGlobalSearchResult {
+  items: ProjectWithGlobalStatus[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export function useGlobalSearch(search: string, page: number = 1) {
+  const pageSize = PROJECTS_PAGE_SIZE;
+  const pageNum = Math.max(page, 1);
+  const rangeStart = (pageNum - 1) * pageSize;
+  const rangeEnd = rangeStart + pageSize - 1;
+
   return useQuery({
-    queryKey: ["global-search", search],
-    queryFn: async () => {
-      if (!search.trim()) return [];
+    queryKey: ["global-search", search, pageNum, pageSize],
+    queryFn: async (): Promise<PaginatedGlobalSearchResult> => {
+      if (!search.trim()) {
+        return { items: [], total: 0, totalPages: 0, page: pageNum, pageSize };
+      }
 
       const term = search.toLowerCase();
 
-      const [{ data: projects, error: projErr }, { data: activeClaims, error: claimErr }] =
+      const [{ data: projects, error: projErr, count }, { data: activeClaims, error: claimErr }] =
         await Promise.all([
           supabase
             .from("github_projects")
-            .select("*")
+            .select("*", { count: "exact" })
             .or(`full_name.ilike.*${term}*,description.ilike.*${term}*`)
             .order("stars", { ascending: false })
-            .limit(100),
+            .range(rangeStart, rangeEnd),
           supabase
             .from("project_claims")
             .select("*")
@@ -262,6 +277,9 @@ export function useGlobalSearch(search: string) {
 
       if (projErr) throw projErr;
       if (claimErr) throw claimErr;
+
+      const total = count ?? 0;
+      const totalPages = Math.ceil(total / pageSize);
 
       const claimMap = new Map<string, ProjectClaim>();
       for (const c of activeClaims || []) {
@@ -272,7 +290,7 @@ export function useGlobalSearch(search: string) {
         }
       }
 
-      return (projects || []).map((p): ProjectWithGlobalStatus => {
+      const items = (projects || []).map((p): ProjectWithGlobalStatus => {
         const claim = claimMap.get(p.id) ?? null;
         let globalStatus: GlobalSearchStatus = "available";
         if (claim) {
@@ -280,6 +298,8 @@ export function useGlobalSearch(search: string) {
         }
         return { ...p, claim, globalStatus };
       });
+
+      return { items, total, totalPages, page: pageNum, pageSize };
     },
     enabled: search.trim().length > 0,
     staleTime: 15 * 1000,

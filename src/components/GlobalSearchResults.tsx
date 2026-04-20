@@ -162,12 +162,14 @@ function GlobalSearchRow({ project, onRequestLogin }: GlobalSearchRowProps) {
 
 interface Props {
   results: ProjectWithGlobalStatus[];
+  /** Total matches across all pages (when search is paginated server-side). Falls back to `results.length`. */
+  total?: number;
   isLoading: boolean;
   search: string;
   onRequestLogin?: () => void;
 }
 
-export function GlobalSearchResults({ results, isLoading, search, onRequestLogin }: Props) {
+export function GlobalSearchResults({ results, total, isLoading, search, onRequestLogin }: Props) {
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -195,7 +197,8 @@ export function GlobalSearchResults({ results, isLoading, search, onRequestLogin
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        搜索「{search}」共找到 <span className="font-medium text-foreground">{results.length}</span> 个项目
+        搜索「{search}」共找到{" "}
+        <span className="font-medium text-foreground">{total ?? results.length}</span> 个项目
       </p>
       <div className="rounded-lg border">
         <Table>
