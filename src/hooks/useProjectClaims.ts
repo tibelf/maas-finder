@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { AuthUser } from "@/hooks/useAuth";
 
 export type ClaimStatus = "claimed" | "pr_submitted" | "merged";
+export type ClaimCompletionReason = "merged" | "closed" | null;
 
 export interface ProjectClaim {
   id: string;
@@ -10,10 +11,43 @@ export interface ProjectClaim {
   user_id: string;
   user_email: string;
   status: ClaimStatus;
+  completion_reason: ClaimCompletionReason;
   pr_url: string | null;
   pr_number: number | null;
   claimed_at: string;
   updated_at: string;
+}
+
+function parseGithubPrUrl(prUrl: string) {
+  const match = prUrl.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(\/.*)?$/i);
+  if (!match) return null;
+  return {
+    owner: match[1],
+    repo: match[2],
+    prNumber: parseInt(match[3], 10),
+  };
+}
+
+async function fetchGithubPrState(prUrl: string): Promise<"open" | "closed" | "merged"> {
+  const parsed = parseGithubPrUrl(prUrl);
+  if (!parsed) {
+    throw new Error("PR 链接格式错误，无法解析仓库和 PR 编号");
+  }
+
+  const response = await fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}/pulls/${parsed.prNumber}`, {
+    headers: {
+      Accept: "application/vnd.github+json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`获取 PR 状态失败（HTTP ${response.status}）`);
+  }
+
+  const payload = await response.json();
+  if (payload?.merged_at) return "merged";
+  if (payload?.state === "closed") return "closed";
+  return "open";
 }
 
 export interface ProjectWithClaim {
@@ -212,11 +246,15 @@ export function useSubmitPr() {
     mutationFn: async ({ claimId, prUrl }: { claimId: string; prUrl: string }) => {
       const match = prUrl.match(/\/pull\/(\d+)/);
       const prNumber = match ? parseInt(match[1], 10) : null;
+      const prState = await fetchGithubPrState(prUrl);
+      const completionReason: ClaimCompletionReason =
+        prState === "merged" ? "merged" : prState === "closed" ? "closed" : null;
 
       const { error } = await supabase
         .from("project_claims")
         .update({
-          status: "pr_submitted",
+          status: completionReason ? "merged" : "pr_submitted",
+          completion_reason: completionReason,
           pr_url: prUrl,
           pr_number: prNumber,
           updated_at: new Date().toISOString(),

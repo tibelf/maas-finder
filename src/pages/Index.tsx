@@ -210,7 +210,9 @@ const Index = () => {
         method: "POST",
       });
       if (error) throw error;
-      toast.success(`检查完成！共检查 ${data.checked} 个 PR，${data.merged} 个已合并`);
+      toast.success(
+        `检查完成！共检查 ${data.checked} 个 PR，已完成 ${data.completed ?? data.merged} 个（merged: ${data.merged ?? 0}, closed: ${data.closed ?? 0}）`
+      );
       qc.invalidateQueries({ queryKey: ["projects-with-claims"] });
       qc.invalidateQueries({ queryKey: ["project-claims"] });
       qc.invalidateQueries({ queryKey: ["claim-counts"] });

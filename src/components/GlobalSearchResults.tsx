@@ -22,6 +22,11 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   merged: { label: "已完成", className: "bg-slate-100 text-slate-600 border-slate-200" },
 };
 
+const COMPLETION_REASON_STYLES: Record<string, { label: string; className: string }> = {
+  merged: { label: "merged", className: "bg-blue-50 text-blue-700 border-blue-200" },
+  closed: { label: "closed", className: "bg-red-50 text-red-700 border-red-200" },
+};
+
 function formatDate(dateStr: string | null) {
   if (!dateStr) return "N/A";
   const d = new Date(dateStr);
@@ -136,6 +141,17 @@ function GlobalSearchRow({ project, onRequestLogin }: GlobalSearchRowProps) {
                     <GitPullRequest className="h-3 w-3" />
                     #{project.claim.pr_number}
                   </a>
+                )}
+                {project.globalStatus === "merged" && project.claim.completion_reason && (
+                  <span
+                    className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
+                      COMPLETION_REASON_STYLES[project.claim.completion_reason]?.className ??
+                      "bg-slate-100 text-slate-600 border-slate-200"
+                    }`}
+                  >
+                    原因:{" "}
+                    {COMPLETION_REASON_STYLES[project.claim.completion_reason]?.label ?? project.claim.completion_reason}
+                  </span>
                 )}
               </>
             )}

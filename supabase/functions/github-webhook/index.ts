@@ -48,13 +48,14 @@ Deno.serve(async (req: Request) => {
     }
 
     const payload = JSON.parse(body);
-    if (payload.action !== "closed" || !payload.pull_request?.merged) {
-      return new Response(JSON.stringify({ message: "PR not merged" }), {
+    if (payload.action !== "closed") {
+      return new Response(JSON.stringify({ message: "PR not closed" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const prUrl = payload.pull_request.html_url as string;
+    const completionReason = payload.pull_request?.merged ? "merged" : "closed";
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -63,7 +64,11 @@ Deno.serve(async (req: Request) => {
 
     const { data, error } = await supabase
       .from("project_claims")
-      .update({ status: "merged", updated_at: new Date().toISOString() })
+      .update({
+        status: "merged",
+        completion_reason: completionReason,
+        updated_at: new Date().toISOString(),
+      })
       .eq("pr_url", prUrl)
       .eq("status", "pr_submitted")
       .select();

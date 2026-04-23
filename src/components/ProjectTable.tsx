@@ -28,6 +28,7 @@ export function ProjectTable({ projects, tabStatus, sortBy, sortOrder, onSort, o
 
   const showContributor = tabStatus === "claimed" || tabStatus === "pr_submitted" || tabStatus === "merged";
   const showPr = tabStatus === "pr_submitted" || tabStatus === "merged";
+  const showCompletionReason = tabStatus === "merged";
 
   return (
     <div className="rounded-lg border">
@@ -45,6 +46,7 @@ export function ProjectTable({ projects, tabStatus, sortBy, sortOrder, onSort, o
             </SortHeader>
             {showContributor && <TableHead>认领者</TableHead>}
             {showPr && <TableHead>PR</TableHead>}
+            {showCompletionReason && <TableHead>原因</TableHead>}
             <TableHead>操作</TableHead>
           </TableRow>
         </TableHeader>

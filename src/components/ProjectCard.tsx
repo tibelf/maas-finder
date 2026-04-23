@@ -25,6 +25,11 @@ const CATEGORY_LABELS: Record<string, string> = {
   tool: "Tool",
 };
 
+const COMPLETION_REASON_STYLES: Record<string, { label: string; className: string }> = {
+  merged: { label: "merged", className: "bg-blue-50 text-blue-700 border-blue-200" },
+  closed: { label: "closed", className: "bg-red-50 text-red-700 border-red-200" },
+};
+
 function formatDate(dateStr: string | null) {
   if (!dateStr) return "N/A";
   const d = new Date(dateStr);
@@ -74,6 +79,7 @@ export function ProjectRow({ project, tabStatus, onRequestLogin }: Props) {
 
   const showContributor = tabStatus === "claimed" || tabStatus === "pr_submitted" || tabStatus === "merged";
   const showPr = tabStatus === "pr_submitted" || tabStatus === "merged";
+  const showCompletionReason = tabStatus === "merged";
 
   return (
     <>
@@ -158,6 +164,23 @@ export function ProjectRow({ project, tabStatus, onRequestLogin }: Props) {
                 <GitPullRequest className="h-3.5 w-3.5" />
                 #{project.claim.pr_number}
               </a>
+            )}
+          </TableCell>
+        )}
+
+        {showCompletionReason && (
+          <TableCell>
+            {project.claim?.completion_reason ? (
+              <span
+                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
+                  COMPLETION_REASON_STYLES[project.claim.completion_reason]?.className ??
+                  "bg-slate-100 text-slate-600 border-slate-200"
+                }`}
+              >
+                {COMPLETION_REASON_STYLES[project.claim.completion_reason]?.label ?? project.claim.completion_reason}
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground">—</span>
             )}
           </TableCell>
         )}

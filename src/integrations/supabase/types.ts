@@ -16,11 +16,11 @@ export type Database = {
     Tables: {
       project_claims: {
         Row: {
+          completion_reason: string | null
           id: string
           project_id: string
           user_id: string
-          github_username: string
-          github_avatar_url: string
+          user_email: string
           status: string
           pr_url: string | null
           pr_number: number | null
@@ -28,11 +28,11 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          completion_reason?: string | null
           id?: string
           project_id: string
           user_id: string
-          github_username?: string
-          github_avatar_url?: string
+          user_email: string
           status?: string
           pr_url?: string | null
           pr_number?: number | null
@@ -40,11 +40,11 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          completion_reason?: string | null
           id?: string
           project_id?: string
           user_id?: string
-          github_username?: string
-          github_avatar_url?: string
+          user_email?: string
           status?: string
           pr_url?: string | null
           pr_number?: number | null
