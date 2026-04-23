@@ -43,6 +43,11 @@ function formatCount(n: number) {
   return String(n);
 }
 
+function truncateProjectName(name: string, maxLength = 20) {
+  if (name.length <= maxLength) return name;
+  return `${name.slice(0, maxLength)}...`;
+}
+
 interface GlobalSearchRowProps {
   project: ProjectWithGlobalStatus;
   onRequestLogin?: () => void;
@@ -75,7 +80,7 @@ function GlobalSearchRow({ project, onRequestLogin }: GlobalSearchRowProps) {
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 font-medium text-primary hover:underline truncate"
         >
-          {project.full_name}
+          {truncateProjectName(project.full_name)}
           <ExternalLink className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
         </a>
       </TableCell>
