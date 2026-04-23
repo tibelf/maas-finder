@@ -30,7 +30,7 @@ async function fetchPrStatus(
   repo: string,
   prNumber: number,
   token: string
-): Promise<{ merged: boolean; closed: boolean; state: string } | null> {
+): Promise<{ merged: boolean; closed: boolean } | null> {
   try {
     const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/pulls/${prNumber}`, {
       headers: {
@@ -50,7 +50,6 @@ async function fetchPrStatus(
     return {
       merged: !!data.merged_at,
       closed: data.state === 'closed',
-      state: String(data.state ?? 'open'),
     }
   } catch (e) {
     console.error(`Fetch error for ${owner}/${repo}/pull/${prNumber}:`, e)
@@ -91,9 +90,7 @@ Deno.serve(async (req) => {
 
     const records = (pendingClaims || []) as PrRecord[]
     let checked = 0
-    let completed = 0
     let merged = 0
-    let closed = 0
     let failed = 0
 
     for (const record of records) {
@@ -109,13 +106,11 @@ Deno.serve(async (req) => {
       const status = await fetchPrStatus(parsed.owner, parsed.repo, parsed.number, githubToken)
       checked++
 
-      if (status?.merged || status?.closed) {
-        const completionReason = status.merged ? 'merged' : 'closed'
+      if (status?.merged) {
         const { error: updateErr } = await supabase
           .from('project_claims')
           .update({
             status: 'merged',
-            completion_reason: completionReason,
             updated_at: new Date().toISOString(),
           })
           .eq('id', record.id)
@@ -124,12 +119,7 @@ Deno.serve(async (req) => {
           console.error(`Failed to update claim ${record.id}:`, updateErr)
           failed++
         } else {
-          completed++
-          if (completionReason === 'merged') {
-            merged++
-          } else {
-            closed++
-          }
+          merged++
         }
       }
 
@@ -141,9 +131,7 @@ Deno.serve(async (req) => {
         success: true,
         total_pending: records.length,
         checked,
-        completed,
         merged,
-        closed,
         failed,
       }),
       {

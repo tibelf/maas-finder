@@ -39,10 +39,10 @@ const FETCH_TIMEOUT_MS   = 30_000
 const MAX_DIR_ENTRIES    = 200
 
 // ── Search queries ───────────────────────────────────────────────────────────
-const SEARCH_KEYWORDS = [
-  'ai agent framework llm',
-  'rag chatbot openai',
-  'llm application framework',
+const SEARCH_QUERIES = [
+  'ai agent framework llm stars:>500',
+  'rag chatbot openai stars:>500',
+  'llm application framework stars:>500',
 ]
 
 // ── Competitor list ──────────────────────────────────────────────────────────
@@ -299,23 +299,15 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey)
 
     // ── Create job record ────────────────────────────────────────────────────
-    const pushedSince = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    const createdSince = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    const queryVariants = [
-      `stars:>1000 pushed:>${pushedSince} forks:>50`,
-      `stars:>300 created:>${createdSince}`,
-    ]
-    const searchQueries = SEARCH_KEYWORDS.flatMap(
-      keyword => queryVariants.map(variant => `${keyword} ${variant}`)
-    )
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
     const { data: jobRecord, error: jobCreateErr } = await supabase
       .from('sync_jobs')
       .insert({
         job_type: 'incremental',
         status: 'running',
-        search_queries: searchQueries,
-        time_window_since: pushedSince,
+        search_queries: SEARCH_QUERIES.map(q => `${q} created:>${since}`),
+        time_window_since: since,
         competitor_list: ALL_COMPETITORS,
         min_competitor_hits: MIN_COMPETITOR_HITS,
       })
@@ -328,7 +320,8 @@ Deno.serve(async (req) => {
     // ── 1. Candidate discovery ───────────────────────────────────────────────
     const allRepos = new Map<number, GitHubRepo>()
 
-    for (const q of searchQueries) {
+    for (const query of SEARCH_QUERIES) {
+      const q = `${query} created:>${since}`
       const data = await fetchGitHub(
         `/search/repositories?q=${encodeURIComponent(q)}&sort=stars&order=desc&per_page=${PER_PAGE}&page=1`,
         githubToken
@@ -538,8 +531,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({
       success: true,
       job_id: jobId,
-      pushed_since: pushedSince,
-      created_since: createdSince,
+      since,
       total_found: allRepos.size,
       scanned,
       accepted,

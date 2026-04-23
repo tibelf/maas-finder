@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
+import { KeyboardEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useProjectStats, type ProjectFilters } from "@/hooks/useGithubProjects";
 import { useProjectsWithClaims, useClaimCounts, useGlobalSearch, PROJECTS_PAGE_SIZE } from "@/hooks/useProjectClaims";
-import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useActiveInitJob, useStartInitJob } from "@/hooks/useSyncJob";
 import { ProjectTable } from "@/components/ProjectTable";
 import { ProjectFiltersBar } from "@/components/ProjectFiltersBar";
@@ -18,15 +17,12 @@ import { useAuthContext } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import type { TabStatus } from "@/components/ProjectCard";
 import { AddProjectDialog } from "@/components/AddProjectDialog";
-import { ListPagination } from "@/components/ListPagination";
+import { Input } from "@/components/ui/input";
 
 function clampPage(page: number, totalPages: number) {
   if (totalPages <= 0) return 1;
   return Math.min(Math.max(page, 1), totalPages);
 }
-
-/** Debounce delay for search input before hitting Supabase (global search + list filters). */
-const SEARCH_DEBOUNCE_MS = 750;
 
 const Index = () => {
   const { user, loading: authLoading, signOut } = useAuthContext();
@@ -48,8 +44,6 @@ const Index = () => {
     pr_submitted: "1",
     merged: "1",
   });
-  const [searchPage, setSearchPage] = useState(1);
-  const [searchPageInput, setSearchPageInput] = useState("1");
   const [filters, setFilters] = useState<ProjectFilters>({
     search: "",
     languages: [],
@@ -57,7 +51,6 @@ const Index = () => {
     sortBy: "stars",
     sortOrder: "desc",
   });
-  const debouncedSearch = useDebouncedValue(filters.search, SEARCH_DEBOUNCE_MS);
   const [syncing, setSyncing] = useState(false);
   const [checkingPrs, setCheckingPrs] = useState(false);
   const [addProjectOpen, setAddProjectOpen] = useState(false);
@@ -76,7 +69,7 @@ const Index = () => {
   } = useProjectsWithClaims("available", {
     page: tabPages.available,
     pageSize: PROJECTS_PAGE_SIZE,
-    search: debouncedSearch,
+    search: filters.search,
     languages: filters.languages,
     categories: filters.categories,
   });
@@ -99,17 +92,12 @@ const Index = () => {
   const mergedProjects = mergedData?.items ?? [];
 
   const isSearching = filters.search.trim().length > 0;
-  const { data: globalSearchData, isLoading: globalSearchLoading } = useGlobalSearch(debouncedSearch, searchPage);
+  const { data: globalSearchResults, isLoading: globalSearchLoading } = useGlobalSearch(filters.search);
 
   useEffect(() => {
     setTabPages((prev) => ({ ...prev, available: 1 }));
     setTabPageInputs((prev) => ({ ...prev, available: "1" }));
-  }, [debouncedSearch, filters.languages, filters.categories]);
-
-  useEffect(() => {
-    setSearchPage(1);
-    setSearchPageInput("1");
-  }, [debouncedSearch]);
+  }, [filters.search, filters.languages, filters.categories]);
 
   const updateTabPage = (tab: TabStatus, page: number) => {
     setTabPages((prev) => ({ ...prev, [tab]: page }));
@@ -147,34 +135,73 @@ const Index = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mergedData]);
 
-  useEffect(() => {
-    if (!globalSearchData) return;
-    const next = clampPage(searchPage, globalSearchData.totalPages);
-    if (next !== searchPage) {
-      setSearchPage(next);
-      setSearchPageInput(String(next));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [globalSearchData]);
+  const renderPagination = (tab: TabStatus, total: number, totalPages: number, isLoading: boolean) => {
+    if (isLoading || total === 0 || totalPages <= 1) return null;
 
-  const updateSearchPage = (page: number) => {
-    setSearchPage(page);
-    setSearchPageInput(String(page));
+    const current = tabPages[tab];
+    const inputValue = tabPageInputs[tab];
+    const gotoPage = (targetPage: number) => {
+      updateTabPage(tab, clampPage(targetPage, totalPages));
+    };
+
+    const handleJump = () => {
+      const parsed = Number.parseInt(inputValue, 10);
+      if (Number.isNaN(parsed)) {
+        setTabPageInputs((prev) => ({ ...prev, [tab]: String(current) }));
+        return;
+      }
+      gotoPage(parsed);
+    };
+
+    const handlePageInputBlur = () => {
+      const parsed = Number.parseInt(inputValue, 10);
+      if (Number.isNaN(parsed)) {
+        setTabPageInputs((prev) => ({ ...prev, [tab]: String(current) }));
+        return;
+      }
+      setTabPageInputs((prev) => ({ ...prev, [tab]: String(clampPage(parsed, totalPages)) }));
+    };
+
+    const handlePageInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        handleJump();
+      }
+    };
+
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+        <p className="text-sm text-muted-foreground">
+          共 {total} 条，第 {current} / {totalPages} 页，每页 {PROJECTS_PAGE_SIZE} 条
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => gotoPage(1)} disabled={current === 1}>
+            首页
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => gotoPage(current - 1)} disabled={current === 1}>
+            上一页
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => gotoPage(current + 1)} disabled={current === totalPages}>
+            下一页
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => gotoPage(totalPages)} disabled={current === totalPages}>
+            尾页
+          </Button>
+          <Input
+            value={inputValue}
+            onChange={(event) => setTabPageInputs((prev) => ({ ...prev, [tab]: event.target.value }))}
+            onBlur={handlePageInputBlur}
+            onKeyDown={handlePageInputKeyDown}
+            className="h-8 w-20"
+            inputMode="numeric"
+            aria-label={`${tab} 跳转页码`}
+          />
+          <Button variant="secondary" size="sm" onClick={handleJump}>
+            跳转
+          </Button>
+        </div>
+      </div>
+    );
   };
-
-  const renderPagination = (tab: TabStatus, total: number, totalPages: number, isLoading: boolean) => (
-    <ListPagination
-      total={total}
-      totalPages={totalPages}
-      currentPage={tabPages[tab]}
-      pageInput={tabPageInputs[tab]}
-      onPageInputChange={(value) => setTabPageInputs((prev) => ({ ...prev, [tab]: value }))}
-      onGotoPage={(page) => updateTabPage(tab, clampPage(page, totalPages))}
-      isLoading={isLoading}
-      pageSize={PROJECTS_PAGE_SIZE}
-      ariaLabelForInput={`${tab} 跳转页码`}
-    />
-  );
 
   const handleCheckPrs = async () => {
     setCheckingPrs(true);
@@ -183,9 +210,7 @@ const Index = () => {
         method: "POST",
       });
       if (error) throw error;
-      toast.success(
-        `检查完成！共检查 ${data.checked} 个 PR，已完成 ${data.completed ?? data.merged} 个（merged: ${data.merged ?? 0}, closed: ${data.closed ?? 0}）`
-      );
+      toast.success(`检查完成！共检查 ${data.checked} 个 PR，${data.merged} 个已合并`);
       qc.invalidateQueries({ queryKey: ["projects-with-claims"] });
       qc.invalidateQueries({ queryKey: ["project-claims"] });
       qc.invalidateQueries({ queryKey: ["claim-counts"] });
@@ -350,26 +375,12 @@ const Index = () => {
           />
 
           {isSearching ? (
-            <>
-              <GlobalSearchResults
-                results={globalSearchData?.items ?? []}
-                total={globalSearchData?.total}
-                isLoading={globalSearchLoading}
-                search={filters.search}
-                onRequestLogin={() => setAuthDialogOpen(true)}
-              />
-              <ListPagination
-                total={globalSearchData?.total ?? 0}
-                totalPages={globalSearchData?.totalPages ?? 0}
-                currentPage={searchPage}
-                pageInput={searchPageInput}
-                onPageInputChange={setSearchPageInput}
-                onGotoPage={updateSearchPage}
-                isLoading={globalSearchLoading}
-                pageSize={PROJECTS_PAGE_SIZE}
-                ariaLabelForInput="搜索结果跳转页码"
-              />
-            </>
+            <GlobalSearchResults
+              results={globalSearchResults ?? []}
+              isLoading={globalSearchLoading}
+              search={filters.search}
+              onRequestLogin={() => setAuthDialogOpen(true)}
+            />
           ) : (
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabStatus)}>
               <TabsList className="grid w-full grid-cols-4 max-w-lg">
