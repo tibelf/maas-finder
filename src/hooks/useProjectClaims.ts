@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { AuthUser } from "@/hooks/useAuth";
 
 export type ClaimStatus = "claimed" | "pr_submitted" | "merged";
+export type ClaimCompletionReason = "merged" | "closed" | null;
 
 export interface ProjectClaim {
   id: string;
@@ -10,10 +11,43 @@ export interface ProjectClaim {
   user_id: string;
   user_email: string;
   status: ClaimStatus;
+  completion_reason: ClaimCompletionReason;
   pr_url: string | null;
   pr_number: number | null;
   claimed_at: string;
   updated_at: string;
+}
+
+function parseGithubPrUrl(prUrl: string) {
+  const match = prUrl.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(\/.*)?$/i);
+  if (!match) return null;
+  return {
+    owner: match[1],
+    repo: match[2],
+    prNumber: parseInt(match[3], 10),
+  };
+}
+
+async function fetchGithubPrState(prUrl: string): Promise<"open" | "closed" | "merged"> {
+  const parsed = parseGithubPrUrl(prUrl);
+  if (!parsed) {
+    throw new Error("PR 链接格式错误，无法解析仓库和 PR 编号");
+  }
+
+  const response = await fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}/pulls/${parsed.prNumber}`, {
+    headers: {
+      Accept: "application/vnd.github+json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`获取 PR 状态失败（HTTP ${response.status}）`);
+  }
+
+  const payload = await response.json();
+  if (payload?.merged_at) return "merged";
+  if (payload?.state === "closed") return "closed";
+  return "open";
 }
 
 export interface ProjectWithClaim {
@@ -212,11 +246,15 @@ export function useSubmitPr() {
     mutationFn: async ({ claimId, prUrl }: { claimId: string; prUrl: string }) => {
       const match = prUrl.match(/\/pull\/(\d+)/);
       const prNumber = match ? parseInt(match[1], 10) : null;
+      const prState = await fetchGithubPrState(prUrl);
+      const completionReason: ClaimCompletionReason =
+        prState === "merged" ? "merged" : prState === "closed" ? "closed" : null;
 
       const { error } = await supabase
         .from("project_claims")
         .update({
-          status: "pr_submitted",
+          status: completionReason ? "merged" : "pr_submitted",
+          completion_reason: completionReason,
           pr_url: prUrl,
           pr_number: prNumber,
           updated_at: new Date().toISOString(),
@@ -238,22 +276,37 @@ export interface ProjectWithGlobalStatus extends ProjectWithClaim {
   globalStatus: GlobalSearchStatus;
 }
 
-export function useGlobalSearch(search: string) {
+export interface PaginatedGlobalSearchResult {
+  items: ProjectWithGlobalStatus[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export function useGlobalSearch(search: string, page: number = 1) {
+  const pageSize = PROJECTS_PAGE_SIZE;
+  const pageNum = Math.max(page, 1);
+  const rangeStart = (pageNum - 1) * pageSize;
+  const rangeEnd = rangeStart + pageSize - 1;
+
   return useQuery({
-    queryKey: ["global-search", search],
-    queryFn: async () => {
-      if (!search.trim()) return [];
+    queryKey: ["global-search", search, pageNum, pageSize],
+    queryFn: async (): Promise<PaginatedGlobalSearchResult> => {
+      if (!search.trim()) {
+        return { items: [], total: 0, totalPages: 0, page: pageNum, pageSize };
+      }
 
       const term = search.toLowerCase();
 
-      const [{ data: projects, error: projErr }, { data: activeClaims, error: claimErr }] =
+      const [{ data: projects, error: projErr, count }, { data: activeClaims, error: claimErr }] =
         await Promise.all([
           supabase
             .from("github_projects")
-            .select("*")
+            .select("*", { count: "exact" })
             .or(`full_name.ilike.*${term}*,description.ilike.*${term}*`)
             .order("stars", { ascending: false })
-            .limit(100),
+            .range(rangeStart, rangeEnd),
           supabase
             .from("project_claims")
             .select("*")
@@ -262,6 +315,9 @@ export function useGlobalSearch(search: string) {
 
       if (projErr) throw projErr;
       if (claimErr) throw claimErr;
+
+      const total = count ?? 0;
+      const totalPages = Math.ceil(total / pageSize);
 
       const claimMap = new Map<string, ProjectClaim>();
       for (const c of activeClaims || []) {
@@ -272,7 +328,7 @@ export function useGlobalSearch(search: string) {
         }
       }
 
-      return (projects || []).map((p): ProjectWithGlobalStatus => {
+      const items = (projects || []).map((p): ProjectWithGlobalStatus => {
         const claim = claimMap.get(p.id) ?? null;
         let globalStatus: GlobalSearchStatus = "available";
         if (claim) {
@@ -280,6 +336,8 @@ export function useGlobalSearch(search: string) {
         }
         return { ...p, claim, globalStatus };
       });
+
+      return { items, total, totalPages, page: pageNum, pageSize };
     },
     enabled: search.trim().length > 0,
     staleTime: 15 * 1000,
@@ -298,10 +356,6 @@ export function useClaimCounts() {
       const claimed = (data || []).filter((c) => c.status === "claimed").length;
       const pr_submitted = (data || []).filter((c) => c.status === "pr_submitted").length;
       const merged = (data || []).filter((c) => c.status === "merged").length;
-
-      const { data: total } = await supabase
-        .from("github_projects")
-        .select("id", { count: "exact", head: true });
 
       const activeClaimed = new Set(
         (data || []).filter((c) => ["claimed", "pr_submitted"].includes(c.status)).map((c) => c.project_id)

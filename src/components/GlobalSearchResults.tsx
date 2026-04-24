@@ -22,6 +22,11 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   merged: { label: "已完成", className: "bg-slate-100 text-slate-600 border-slate-200" },
 };
 
+const COMPLETION_REASON_STYLES: Record<string, { label: string; className: string }> = {
+  merged: { label: "merged", className: "bg-blue-50 text-blue-700 border-blue-200" },
+  closed: { label: "closed", className: "bg-red-50 text-red-700 border-red-200" },
+};
+
 function formatDate(dateStr: string | null) {
   if (!dateStr) return "N/A";
   const d = new Date(dateStr);
@@ -137,6 +142,17 @@ function GlobalSearchRow({ project, onRequestLogin }: GlobalSearchRowProps) {
                     #{project.claim.pr_number}
                   </a>
                 )}
+                {project.globalStatus === "merged" && project.claim.completion_reason && (
+                  <span
+                    className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
+                      COMPLETION_REASON_STYLES[project.claim.completion_reason]?.className ??
+                      "bg-slate-100 text-slate-600 border-slate-200"
+                    }`}
+                  >
+                    原因:{" "}
+                    {COMPLETION_REASON_STYLES[project.claim.completion_reason]?.label ?? project.claim.completion_reason}
+                  </span>
+                )}
               </>
             )}
           </div>
@@ -162,12 +178,14 @@ function GlobalSearchRow({ project, onRequestLogin }: GlobalSearchRowProps) {
 
 interface Props {
   results: ProjectWithGlobalStatus[];
+  /** Total matches across all pages (when search is paginated server-side). Falls back to `results.length`. */
+  total?: number;
   isLoading: boolean;
   search: string;
   onRequestLogin?: () => void;
 }
 
-export function GlobalSearchResults({ results, isLoading, search, onRequestLogin }: Props) {
+export function GlobalSearchResults({ results, total, isLoading, search, onRequestLogin }: Props) {
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -195,7 +213,8 @@ export function GlobalSearchResults({ results, isLoading, search, onRequestLogin
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        搜索「{search}」共找到 <span className="font-medium text-foreground">{results.length}</span> 个项目
+        搜索「{search}」共找到{" "}
+        <span className="font-medium text-foreground">{total ?? results.length}</span> 个项目
       </p>
       <div className="rounded-lg border">
         <Table>
