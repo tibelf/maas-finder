@@ -78,7 +78,7 @@ export function useProjectsWithClaims(
         const { data: claimedIds, error: claimedErr } = await supabase
           .from("project_claims")
           .select("project_id")
-          .in("status", ["claimed", "pr_submitted"]);
+          .in("status", ["claimed", "pr_submitted", "merged"]);
         if (claimedErr) throw claimedErr;
 
         const ids = (claimedIds || []).map((c) => c.project_id);
