@@ -301,14 +301,14 @@ const Index = () => {
         <div className="rounded-lg border border-sky-200 bg-sky-50 dark:border-sky-800 dark:bg-sky-950/30 px-4 py-3 flex items-center gap-3 text-sm">
           <GitPullRequest className="h-4 w-4 text-sky-600 dark:text-sky-400 shrink-0" />
           <span className="text-sky-800 dark:text-sky-200">
-            想为项目贡献 MaaS 集成代码？使用{" "}
+            想为项目贡献 MaaS 集成代码？参照{" "}
             <a
               href="/docs/Qiniu-MaaS-Integration-Workflow.md"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-0.5 font-medium underline underline-offset-2 hover:text-sky-600 dark:hover:text-sky-300"
             >
-              Qiniu MaaS Integration Workflow
+              七牛MaaS生成工作流文档
               <ExternalLink className="h-3 w-3" />
             </a>{" "}
             快速生成可提交代码。
