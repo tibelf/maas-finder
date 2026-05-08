@@ -1,5 +1,4 @@
-# Qiniu MaaS Integration Workflow
-
+# 七牛MaaS生成工作流
 用于快速完成七牛云 MaaS 厂商接入、测试记录生成以及 PR 自动生成。
 
 需要用到的 skills 包含:
