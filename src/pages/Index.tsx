@@ -308,7 +308,7 @@ const Index = () => {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-0.5 font-medium underline underline-offset-2 hover:text-sky-600 dark:hover:text-sky-300"
             >
-              七牛MaaS生成工作流文档
+              七牛云 MaaS 集成指导文档
               <ExternalLink className="h-3 w-3" />
             </a>{" "}
             快速生成可提交代码。
