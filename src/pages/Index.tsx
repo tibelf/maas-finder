@@ -303,7 +303,7 @@ const Index = () => {
           <span className="text-sky-800 dark:text-sky-200">
             想为项目贡献 MaaS 集成代码？参照{" "}
             <a
-              href="/docs/Qiniu-MaaS-Integration-Workflow.md"
+              href="/docs/Qiniu-MaaS-Integration-Workflow"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-0.5 font-medium underline underline-offset-2 hover:text-sky-600 dark:hover:text-sky-300"
