@@ -27,7 +27,8 @@ export default function DocPage() {
         return res.text();
       })
       .then((md) => {
-        const result = marked.parse(md);
+        const rewritten = md.replace(/\.\/(img\/)/g, `/docs/$1`);
+        const result = marked.parse(rewritten);
         setHtml(typeof result === "string" ? result : String(result));
       })
       .catch((e) => setError(e.message));
