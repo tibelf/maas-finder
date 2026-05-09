@@ -20,7 +20,8 @@ export default function DocPage() {
     setHtml(null);
     setError(null);
 
-    fetch(`/docs/${filePath}`)
+    const base = filePath.replace(/\.(md|mdx)$/, "");
+    fetch(`/docs/${base}.mdx`)
       .then((res) => {
         if (!res.ok) throw new Error(`文档未找到（HTTP ${res.status}）`);
         return res.text();
