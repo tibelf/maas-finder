@@ -67,8 +67,9 @@ export default function DocPage() {
               prose-headings:font-semibold prose-headings:tracking-tight
               prose-h1:text-2xl prose-h2:text-xl prose-h2:border-b prose-h2:pb-2
               prose-a:text-primary prose-a:no-underline hover:prose-a:underline
-              prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm
-              prose-pre:bg-muted prose-pre:border
+              prose-code:bg-slate-100 prose-code:text-slate-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm
+              prose-pre:bg-slate-900 prose-pre:text-slate-100 prose-pre:border-0
+              [&_pre_code]:bg-transparent [&_pre_code]:text-inherit [&_pre_code]:p-0
               prose-img:rounded-lg prose-img:shadow-sm"
             dangerouslySetInnerHTML={{ __html: html }}
           />
