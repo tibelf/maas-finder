@@ -123,4 +123,6 @@ Added support for Qiniu AI (七牛云) as a new model provider.
 
 - 这是一个通用的模板，若官方有其他的要求，如提供成功截图等，以官方为准。
 
-- 之后提交PR即可。
+- 之后提交PR即可，效果如图。
+
+<img src="./img/Qiniu MaaS Integration Workflow-4-4.png" width="600" />
